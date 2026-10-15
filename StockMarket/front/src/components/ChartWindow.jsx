@@ -31,20 +31,26 @@ export default function ChartWindow({ asset, quote, watched, onToggleWatch, onCl
   const yearLow = year?.length ? Math.min(quote.low, ...year.map((c) => c.l)) : null
   const dash = (v) => (v == null ? '—' : fmtNumber(v, asset.dp))
 
-  const lastColumn = {
+  // Currencies trade around the clock, so their "day" is a rolling 24h window.
+  const isForex = asset.type === 'forex'
+  const period = isForex ? '24h' : 'Day'
+  const extra = {
     stock: ['Prev close', dash(quote.prevClose)],
-    forex: ['Spread', `${asset.spread} pips`],
+    forex: ['History', 'Twelve Data'],
     crypto: ['Market cap', `$${fmtCompact(asset.cap ?? 0)}`],
   }[asset.type]
+  // Pairs Finnhub doesn't stream (e.g. EUR/TND) only refresh with the Twelve Data snapshot.
+  const forexSource = quote.tick > 0 ? 'Finnhub · live' : 'Twelve Data · every 15 min'
+  const source = { stock: 'Alpaca · live', forex: forexSource, crypto: 'Simulated' }[asset.type]
   const stats = [
-    ['Open', dash(quote.open)],
-    ['Day high', dash(quote.high)],
-    ['Day low', dash(quote.low)],
-    [asset.type === 'forex' ? 'Tick volume' : 'Volume', fmtCompact(quote.volume)],
+    [isForex ? '24h open' : 'Open', dash(quote.open)],
+    [`${period} high`, dash(quote.high)],
+    [`${period} low`, dash(quote.low)],
+    ['Volume', quote.volume == null ? '—' : fmtCompact(quote.volume)],
     ['52W high', dash(yearHigh)],
     ['52W low', dash(yearLow)],
-    lastColumn,
-    ['Source', asset.live ? 'Alpaca · live' : 'Simulated'],
+    extra,
+    ['Source', source],
   ]
 
   return (
@@ -79,11 +85,11 @@ export default function ChartWindow({ asset, quote, watched, onToggleWatch, onCl
           <LivePrice asset={asset} quote={quote} className="price-xl" />
           <Delta quote={quote} className="delta-lg" />
           <span className="caption fog">
-            <span className="mono">{diff >= 0 ? '+' : '−'}{fmtPrice(Math.abs(diff), asset)}</span> today
+            <span className="mono">{diff >= 0 ? '+' : '−'}{fmtPrice(Math.abs(diff), asset)}</span> {isForex ? 'in 24h' : 'today'}
           </span>
           {asset.live && quote.updatedAt && (
             <span className="caption fog">
-              · last trade {new Date(quote.updatedAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+              · last {isForex ? 'quote' : 'trade'} {new Date(quote.updatedAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
             </span>
           )}
         </div>

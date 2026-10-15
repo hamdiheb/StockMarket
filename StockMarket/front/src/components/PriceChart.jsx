@@ -27,8 +27,11 @@ export default function PriceChart({ candles, mode = 'line', range, dp, height =
     const n = candles.length
     const plotW = width - PAD_R
     const plotH = height - PAD_T - PAD_B
-    const volH = plotH * 0.16
-    const priceH = plotH - volH - 8
+    // Forex has no traded volume: drop the volume pane and give the price the full height.
+    const maxVol = Math.max(...candles.map((c) => c.v || 0))
+    const hasVolume = maxVol > 0
+    const volH = hasVolume ? plotH * 0.16 : 0
+    const priceH = plotH - volH - (hasVolume ? 8 : 0)
     const lows = candles.map((c) => (mode === 'line' ? c.c : c.l))
     const highs = candles.map((c) => (mode === 'line' ? c.c : c.h))
     let min = Math.min(...lows)
@@ -36,7 +39,6 @@ export default function PriceChart({ candles, mode = 'line', range, dp, height =
     const padding = (max - min) * 0.08 || max * 0.01
     min -= padding
     max += padding
-    const maxVol = Math.max(...candles.map((c) => c.v))
     const slot = plotW / n
     const x = (i) => (i + 0.5) * slot
     const y = (p) => PAD_T + ((max - p) / (max - min)) * priceH
@@ -53,7 +55,7 @@ export default function PriceChart({ candles, mode = 'line', range, dp, height =
     const line = candles.map((c, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(c.c).toFixed(1)}`).join('')
     const area = `${line}L${x(n - 1).toFixed(1)},${PAD_T + priceH}L${x(0).toFixed(1)},${PAD_T + priceH}Z`
 
-    return { n, plotW, priceH, volH, volTop, slot, x, y, maxVol, yTicks, tickDp, xTicks, line, area }
+    return { n, plotW, priceH, volH, volTop, slot, x, y, maxVol, hasVolume, yTicks, tickDp, xTicks, line, area }
   }, [candles, mode, width, height, dp])
 
   const onMove = (e) => {
@@ -78,7 +80,7 @@ export default function PriceChart({ candles, mode = 'line', range, dp, height =
           <span>H <b>{fmtNumber(active.h, dp)}</b></span>
           <span>L <b>{fmtNumber(active.l, dp)}</b></span>
           <span>C <b>{fmtNumber(active.c, dp)}</b></span>
-          <span>Vol <b>{fmtCompact(active.v)}</b></span>
+          {geo.hasVolume && <span>Vol <b>{fmtCompact(active.v)}</b></span>}
           {hover == null && (
             <span className={rangeChange < 0 ? 'is-neg' : 'is-pos'}>
               {range} {rangeChange >= 0 ? '+' : ''}
@@ -111,7 +113,7 @@ export default function PriceChart({ candles, mode = 'line', range, dp, height =
           </text>
         ))}
 
-        {candles.map((c, i) => {
+        {geo.hasVolume && candles.map((c, i) => {
           const h = (c.v / geo.maxVol) * geo.volH
           return (
             <rect

@@ -30,6 +30,13 @@ database/       reserved for persistence (not used yet)
 | GET | `/api/health` | Liveness check |
 | GET | `/api/livedata/stocks?symbols=AAPL,MSFT` | Latest price, day OHLC, volume, previous close and change. Without `symbols` it returns the front end's default list. Cached 5s. |
 | GET | `/api/livedata/stocks/:symbol/bars?range=1D` | Chart candles `{ t, o, h, l, c, v }` for `1D`, `1W`, `1M`, `1Y`, `5Y` |
+| GET | `/api/livedata/forex?pairs=EUR/USD,GBP/USD` | Twelve Data rolling-24h snapshot per pair (price, open, high, low, change, 48-point `spark`). Default: 6 pairs. Cached 15 min. |
+| GET | `/api/livedata/forex/:pair/bars?range=1D` | Forex candles (`:pair` as `EURUSD` or `EUR-USD`), `v` is always 0 |
+
+Twelve Data's free plan allows 8 requests/min and 800/day (1 per pair). The server queues requests to
+stay under the per-minute limit and caches heavily; a page load costs 6 credits at most every 15 minutes.
+Live currency prices stream from Finnhub (OANDA) through the same WebSocket — subscribe with `"EUR/USD"`.
+EUR/TND isn't on Finnhub, so it only updates with the 15-minute snapshot.
 
 ## Real-time stream
 

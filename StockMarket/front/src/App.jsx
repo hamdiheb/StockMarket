@@ -7,8 +7,8 @@ import { useMarket, useWatchlist } from './hooks/useMarket'
 import './App.css'
 
 const SECTIONS = [
-  { id: 'stock', title: 'Stocks', subtitle: 'US equities · live from Alpaca' },
-  { id: 'forex', title: 'Currencies', subtitle: 'Major and regional FX pairs · simulated' },
+  { id: 'stock', title: 'Stocks', subtitle: 'US equities · live from Alpaca', noun: 'stock prices' },
+  { id: 'forex', title: 'Currencies', subtitle: 'Major and regional FX pairs · 24h change · Twelve Data + Finnhub live', noun: 'currency rates' },
   { id: 'crypto', title: 'Crypto', subtitle: 'Top digital assets priced in USD · simulated' },
 ]
 
@@ -16,25 +16,32 @@ function matches(asset, q) {
   return asset.symbol.toLowerCase().includes(q) || asset.name.toLowerCase().includes(q)
 }
 
-function StocksNotice({ stocks, onRetry }) {
-  if (stocks.status === 'loading') return <p className="fog">Loading live stock prices…</p>
-  if (stocks.status === 'error') {
+function SourceNotice({ source, noun }) {
+  if (source.status === 'loading') return <p className="fog">Loading live {noun}…</p>
+  if (source.status === 'error') {
     return (
       <div className="notice__row">
         <p>
-          Couldn’t load live stock prices. <span className="fog">{stocks.error}</span>
+          Couldn’t load live {noun}. <span className="fog">{source.error}</span>
         </p>
-        <button type="button" className="btn-outline" onClick={onRetry}>
+        <button type="button" className="btn-outline" onClick={source.retry}>
           Retry
         </button>
       </div>
     )
   }
-  return <p className="fog">Alpaca returned no stocks.</p>
+  return <p className="fog">The data provider returned nothing.</p>
+}
+
+// Appends the live stream's state to a section subtitle when it isn't streaming.
+function streamNote(stream) {
+  if (!stream || stream.state === 'live') return ''
+  if (stream.state === 'error') return ' · live updates offline'
+  return ' · connecting to live updates…'
 }
 
 export default function App() {
-  const { assets, bySymbol, quotes, stocks, stream, retryStocks } = useMarket()
+  const { assets, bySymbol, quotes, sources, streams } = useMarket()
   const [watchlist, toggleWatch] = useWatchlist()
   const [filter, setFilter] = useState('all')
   const [query, setQuery] = useState('')
@@ -50,13 +57,19 @@ export default function App() {
     setFilter(id)
     document.querySelector('.main')?.scrollTo({ top: 0, behavior: 'smooth' })
   }
-  const showStocksNotice = (filter === 'all' || filter === 'stock') && !q && stocks.status !== 'ready'
+  // Live sections show a loading/error notice instead of disappearing.
+  const noticeFor = (id) => {
+    const source = sources[id]
+    const shown = source && (filter === 'all' || filter === id) && !q && source.status !== 'ready'
+    return shown ? <SourceNotice source={source} noun={SECTIONS.find((s) => s.id === id).noun} /> : null
+  }
+  const anyNotice = SECTIONS.some((s) => noticeFor(s.id))
 
   return (
     <div className="app">
       <IconRail filter={filter} onFilter={changeFilter} />
       <div className="shell">
-        <TopBar query={query} onQuery={setQuery} onSubmit={openFirstMatch} stream={stream} market={stocks.market} />
+        <TopBar query={query} onQuery={setQuery} onSubmit={openFirstMatch} stream={streams.alpaca ?? { state: 'connecting' }} market={sources.stock.market} />
         <div className="body">
           <main className="main" id="markets">
             <div className="page">
@@ -71,16 +84,18 @@ export default function App() {
               {SECTIONS.map((s) => (
                 <MarketSection
                   key={s.id}
-                  {...s}
+                  id={s.id}
+                  title={s.title}
+                  subtitle={s.subtitle + (s.id === 'forex' ? streamNote(streams.finnhub) : '')}
                   assets={visible.filter((a) => a.type === s.id)}
                   quotes={quotes}
                   onOpen={setOpen}
                   onSeeAll={filter === 'all' ? () => changeFilter(s.id) : null}
-                  notice={s.id === 'stock' && showStocksNotice ? <StocksNotice stocks={stocks} onRetry={retryStocks} /> : null}
+                  notice={noticeFor(s.id)}
                 />
               ))}
 
-              {!visible.length && !showStocksNotice && (
+              {!visible.length && !anyNotice && (
                 <p className="empty fog">
                   {filter === 'watch' && !q ? 'Your watchlist is empty — open a chart and press Watch.' : `No instruments match “${query}”.`}
                 </p>
@@ -89,7 +104,7 @@ export default function App() {
           </main>
           <Sidebar quotes={quotes} bySymbol={bySymbol} watchlist={watchlist} onOpen={setOpen} />
         </div>
-        <Footer quotes={quotes} bySymbol={bySymbol} feed={stocks.feed} />
+        <Footer quotes={quotes} bySymbol={bySymbol} stockFeed={sources.stock.feed} />
       </div>
 
       {open && bySymbol[open] && (

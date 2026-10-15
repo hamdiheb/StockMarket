@@ -37,7 +37,8 @@ class FinnhubStream extends UpstreamStream {
       }
     } else if (msg.type === 'error') {
       console.warn(`Finnhub stream error: ${msg.msg}`)
-      this.emit('upstreamError', { message: `Finnhub: ${msg.msg}` })
+      // Pairs OANDA doesn't carry (e.g. EUR/TND) just get no live ticks; the snapshot still prices them.
+      if (!/invalid symbol/i.test(msg.msg ?? '')) this.emit('upstreamError', { message: `Finnhub: ${msg.msg}` })
     }
     // 'ping' keep-alives need no reply
   }

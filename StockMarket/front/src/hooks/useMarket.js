@@ -1,10 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { SIM_ASSETS, gaussian, generateCandles, stockAsset } from '../data/markets'
-import { STREAM_URL, fetchBars, fetchStocks } from '../lib/api'
+import { SIM_ASSETS, forexAsset, gaussian, generateCandles, stockAsset } from '../data/markets'
+import { STREAM_URL, fetchBars, fetchForex, fetchStocks } from '../lib/api'
 
 const SIM_TICK_MS = 1600
 const SNAPSHOT_REFRESH_MS = 60e3
 const SPARK_POINTS = 48
+
+// Live data sources. Forex snapshots already include a 24h trend line; stocks fetch theirs from 1D bars.
+const SOURCES = {
+  stock: { fetchList: fetchStocks, toAsset: stockAsset, loadSparks: true },
+  forex: { fetchList: fetchForex, toAsset: forexAsset, loadSparks: false },
+}
 
 function initialSimQuotes() {
   const quotes = {}
@@ -30,20 +36,23 @@ function sample(values, n) {
   return Array.from({ length: n }, (_, i) => values[Math.round((i / (n - 1)) * (values.length - 1))])
 }
 
-// Merges a REST snapshot into the existing quote, keeping the live-only fields.
+// Merges a REST snapshot into the existing quote. Snapshots can be cached server-side for
+// minutes, so a newer price that arrived over the live stream always wins.
 function fromSnapshot(s, prev) {
+  const liveIsNewer = Boolean(prev?.updatedAt && s.updatedAt && Date.parse(prev.updatedAt) > Date.parse(s.updatedAt))
+  const price = liveIsNewer ? prev.price : s.price
   return {
-    spark: [s.prevClose ?? s.price, s.price],
     dir: 0,
     tick: 0,
     ...prev,
-    price: s.price,
-    open: s.open ?? s.price,
-    prevClose: s.prevClose ?? s.open ?? s.price,
-    high: s.high ?? s.price,
-    low: s.low ?? s.price,
-    volume: s.volume ?? 0,
-    updatedAt: s.updatedAt,
+    spark: s.spark?.length ? [...s.spark.slice(0, -1), price] : (prev?.spark ?? [s.prevClose ?? price, price]),
+    price,
+    open: s.open ?? price,
+    prevClose: s.prevClose ?? s.open ?? price,
+    high: Math.max(s.high ?? price, liveIsNewer ? prev.high : price),
+    low: Math.min(s.low ?? price, liveIsNewer ? prev.low : price),
+    volume: s.volume ?? prev?.volume ?? null,
+    updatedAt: liveIsNewer ? prev.updatedAt : s.updatedAt,
   }
 }
 
@@ -57,7 +66,7 @@ function applyTrades(prev, trades) {
       price: tr.price,
       high: Math.max(q.high, tr.price),
       low: Math.min(q.low, tr.price),
-      volume: q.volume + tr.volume,
+      volume: q.volume == null ? null : q.volume + tr.volume,
       spark: [...q.spark.slice(0, -1), tr.price],
       dir: tr.price > q.price ? 1 : tr.price < q.price ? -1 : q.dir,
       tick: q.tick + 1,
@@ -67,14 +76,125 @@ function applyTrades(prev, trades) {
   return next
 }
 
-// Live stocks (REST snapshot + WebSocket trades) and simulated currencies / crypto.
+// Loads one live source (stocks or forex) on mount and refreshes it every minute.
+function useLiveSource(type, setQuotes) {
+  const { fetchList, toAsset, loadSparks } = SOURCES[type]
+  const [assets, setAssets] = useState([])
+  const [status, setStatus] = useState({ status: 'loading', error: null, market: null, feed: null })
+  const [reloadKey, setReloadKey] = useState(0)
+
+  useEffect(() => {
+    const ctrl = new AbortController()
+    let sparksLoaded = false
+
+    async function load() {
+      try {
+        const data = await fetchList({ signal: ctrl.signal })
+        const live = data.quotes.filter((q) => q.price != null)
+        const nextAssets = live.map(toAsset)
+        setAssets((prev) => (JSON.stringify(prev) === JSON.stringify(nextAssets) ? prev : nextAssets))
+        setQuotes((prev) => {
+          const next = { ...prev }
+          for (const s of live) next[s.symbol] = fromSnapshot(s, prev[s.symbol])
+          return next
+        })
+        setStatus({ status: 'ready', error: null, market: data.market ?? null, feed: data.feed ?? null })
+
+        if (loadSparks && !sparksLoaded) {
+          sparksLoaded = true
+          await Promise.allSettled(
+            nextAssets.map(async (asset) => {
+              const { bars } = await fetchBars(asset, '1D', { signal: ctrl.signal })
+              if (!bars.length) return
+              const spark = sample(bars.map((b) => b.c), SPARK_POINTS)
+              setQuotes((prev) => {
+                const q = prev[asset.symbol]
+                return q ? { ...prev, [asset.symbol]: { ...q, spark: [...spark.slice(0, -1), q.price] } } : prev
+              })
+            }),
+          )
+        }
+      } catch (err) {
+        if (err.name === 'AbortError') return
+        // Keep showing the last good data if a refresh fails.
+        setStatus((prev) => ({ ...prev, status: prev.status === 'ready' ? 'ready' : 'error', error: err.message }))
+      }
+    }
+
+    load()
+    const id = setInterval(load, SNAPSHOT_REFRESH_MS)
+    return () => {
+      ctrl.abort()
+      clearInterval(id)
+    }
+  }, [fetchList, toAsset, loadSparks, setQuotes, reloadKey])
+
+  const retry = useCallback(() => {
+    setStatus((prev) => ({ ...prev, status: 'loading', error: null }))
+    setReloadKey((k) => k + 1)
+  }, [])
+
+  return { assets, status, retry }
+}
+
+// Real-time prices over the back end's WebSocket, reconnecting with backoff.
+// The back end routes stock symbols to Alpaca and currency pairs to Finnhub.
+function useLiveStream(symbols, setQuotes) {
+  const [streams, setStreams] = useState({})
+  const symbolKey = symbols.join(',')
+
+  useEffect(() => {
+    if (!symbolKey) return
+    let ws
+    let retry = 0
+    let timer
+    let closed = false
+
+    function connect() {
+      ws = new WebSocket(STREAM_URL)
+      ws.onopen = () => {
+        retry = 0
+        ws.send(JSON.stringify({ action: 'subscribe', symbols: symbolKey.split(',') }))
+      }
+      ws.onmessage = (event) => {
+        const msg = JSON.parse(event.data)
+        if (msg.type === 'trades') setQuotes((prev) => applyTrades(prev, msg.data))
+        else if (msg.type === 'status') {
+          setStreams((prev) => ({ ...prev, [msg.provider ?? 'alpaca']: { state: msg.state, message: msg.message, feed: msg.feed } }))
+        } else if (msg.type === 'bar') {
+          setQuotes((prev) => {
+            const q = prev[msg.symbol]
+            return q ? { ...prev, [msg.symbol]: { ...q, spark: [...q.spark.slice(1, -1), msg.bar.c, q.price] } } : prev
+          })
+        } else if (msg.type === 'error') console.warn('Live stream:', msg.message)
+      }
+      ws.onclose = () => {
+        if (closed) return
+        const delay = Math.min(30e3, 1000 * 2 ** retry++)
+        const down = { state: 'reconnecting', message: `Can't reach the live stream, retrying in ${Math.round(delay / 1000)}s` }
+        setStreams({ alpaca: down, finnhub: down })
+        timer = setTimeout(connect, delay)
+      }
+    }
+
+    connect()
+    return () => {
+      closed = true
+      clearTimeout(timer)
+      ws?.close()
+    }
+  }, [symbolKey, setQuotes])
+
+  return streams
+}
+
+// Live stocks (Alpaca) and currencies (Twelve Data + Finnhub), simulated crypto.
 export function useMarket() {
   const [quotes, setQuotes] = useState(initialSimQuotes)
-  const [stockAssets, setStockAssets] = useState([])
-  const [stocks, setStocks] = useState({ status: 'loading', error: null, market: null, feed: null })
-  const [stream, setStream] = useState({ state: 'connecting', message: '' })
+  const stocks = useLiveSource('stock', setQuotes)
+  const forex = useLiveSource('forex', setQuotes)
 
-  // Simulated feed for currencies and crypto.
+  // Simulated feed for crypto.
   useEffect(() => {
     const id = setInterval(() => {
       setQuotes((prev) => {
@@ -100,129 +220,42 @@ export function useMarket() {
     return () => clearInterval(id)
   }, [])
 
-  // Stock snapshot on load, refreshed every minute (keeps open/prev close/market clock correct).
-  const [reloadKey, setReloadKey] = useState(0)
-  useEffect(() => {
-    const ctrl = new AbortController()
-    let sparksLoaded = false
+  const liveSymbols = useMemo(() => [...stocks.assets, ...forex.assets].map((a) => a.symbol), [stocks.assets, forex.assets])
+  const streams = useLiveStream(liveSymbols, setQuotes)
 
-    async function load() {
-      try {
-        const data = await fetchStocks({ signal: ctrl.signal })
-        const live = data.quotes.filter((q) => q.price != null)
-        setStockAssets((prev) => {
-          const next = live.map(stockAsset)
-          return JSON.stringify(prev) === JSON.stringify(next) ? prev : next
-        })
-        setQuotes((prev) => {
-          const next = { ...prev }
-          for (const s of live) next[s.symbol] = fromSnapshot(s, prev[s.symbol])
-          return next
-        })
-        setStocks({ status: 'ready', error: null, market: data.market, feed: data.feed })
-
-        if (!sparksLoaded) {
-          sparksLoaded = true
-          // Intraday trend lines for the cards, from the 1D bars.
-          await Promise.allSettled(
-            live.map(async (s) => {
-              const { bars } = await fetchBars(s.symbol, '1D', { signal: ctrl.signal })
-              if (!bars.length) return
-              const spark = sample(bars.map((b) => b.c), SPARK_POINTS)
-              setQuotes((prev) => (prev[s.symbol] ? { ...prev, [s.symbol]: { ...prev[s.symbol], spark: [...spark.slice(0, -1), prev[s.symbol].price] } } : prev))
-            }),
-          )
-        }
-      } catch (err) {
-        if (err.name === 'AbortError') return
-        setStocks((prev) => ({ ...prev, status: prev.status === 'ready' ? 'ready' : 'error', error: err.message }))
-      }
-    }
-
-    load()
-    const id = setInterval(load, SNAPSHOT_REFRESH_MS)
-    return () => {
-      ctrl.abort()
-      clearInterval(id)
-    }
-  }, [reloadKey])
-
-  // Real-time trades over the back end's WebSocket, reconnecting with backoff.
-  const symbolKey = stockAssets.map((a) => a.symbol).join(',')
-  useEffect(() => {
-    if (!symbolKey) return
-    let ws
-    let retry = 0
-    let timer
-    let closed = false
-
-    function connect() {
-      ws = new WebSocket(STREAM_URL)
-      ws.onopen = () => {
-        retry = 0
-        ws.send(JSON.stringify({ action: 'subscribe', symbols: symbolKey.split(',') }))
-      }
-      ws.onmessage = (event) => {
-        const msg = JSON.parse(event.data)
-        if (msg.type === 'trades') setQuotes((prev) => applyTrades(prev, msg.data))
-        else if (msg.type === 'status') setStream({ state: msg.state, message: msg.message })
-        else if (msg.type === 'bar') {
-          setQuotes((prev) => {
-            const q = prev[msg.symbol]
-            return q ? { ...prev, [msg.symbol]: { ...q, spark: [...q.spark.slice(1, -1), msg.bar.c, q.price] } } : prev
-          })
-        } else if (msg.type === 'error') console.warn('Live stream:', msg.message)
-      }
-      ws.onclose = () => {
-        if (closed) return
-        const delay = Math.min(30e3, 1000 * 2 ** retry++)
-        setStream({ state: 'reconnecting', message: `Can't reach the live stream, retrying in ${Math.round(delay / 1000)}s` })
-        timer = setTimeout(connect, delay)
-      }
-    }
-
-    connect()
-    return () => {
-      closed = true
-      clearTimeout(timer)
-      ws?.close()
-    }
-  }, [symbolKey])
-
-  const assets = useMemo(() => [...stockAssets, ...SIM_ASSETS], [stockAssets])
+  const assets = useMemo(() => [...stocks.assets, ...forex.assets, ...SIM_ASSETS], [stocks.assets, forex.assets])
   const bySymbol = useMemo(() => Object.fromEntries(assets.map((a) => [a.symbol, a])), [assets])
-  const retryStocks = useCallback(() => {
-    setStocks((prev) => ({ ...prev, status: 'loading', error: null }))
-    setReloadKey((k) => k + 1)
-  }, [])
+  const sources = { stock: { ...stocks.status, retry: stocks.retry }, forex: { ...forex.status, retry: forex.retry } }
 
-  return { assets, bySymbol, quotes, stocks, stream, retryStocks }
+  return { assets, bySymbol, quotes, sources, streams }
 }
 
-// Candles for a chart: fetched from the API for stocks, simulated for everything else.
-// `anchor` pins the simulated walk's end price; it's ignored for live stocks.
+// Candles for a chart: fetched from the API for live assets, simulated for everything else.
+// `anchor` pins the simulated walk's end price; it's ignored for live assets.
 export function useCandles(asset, range, anchor) {
-  const live = asset.type === 'stock'
+  const live = Boolean(asset.live)
   const key = `${asset.symbol}:${range}`
   const [state, setState] = useState({ key: null, candles: null, error: null })
 
   const simulated = useMemo(() => (live ? null : generateCandles(asset, range, anchor)), [live, asset, range, anchor])
+  // The asset object is rebuilt on every snapshot refresh; symbol + type identify it.
+  const { symbol, type } = asset
 
   useEffect(() => {
     if (!live) return
     const ctrl = new AbortController()
     const load = () =>
-      fetchBars(asset.symbol, range, { signal: ctrl.signal })
+      fetchBars({ symbol, type }, range, { signal: ctrl.signal })
         .then((data) => setState({ key, candles: data.bars, error: null }))
         .catch((err) => err.name !== 'AbortError' && setState((prev) => ({ ...prev, key, error: err.message })))
     load()
-    // Intraday charts pick up new 5-minute candles while open.
+    // Intraday charts pick up new candles while open (the back end caches, so this is cheap).
     const id = range === '1D' ? setInterval(load, 60e3) : null
     return () => {
       ctrl.abort()
       clearInterval(id)
     }
-  }, [live, asset.symbol, range, key])
+  }, [live, symbol, type, range, key])
 
   if (!live) return { candles: simulated, loading: false, error: null }
   const current = state.key === key

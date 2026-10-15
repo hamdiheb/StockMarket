@@ -1,5 +1,5 @@
-// Instrument catalogue. Stocks come live from the API (see hooks/useMarket.js);
-// currencies and crypto are still simulated with a deterministic random walk.
+// Instrument catalogue. Stocks and currencies come live from the API (see hooks/useMarket.js);
+// crypto is still simulated with a deterministic random walk.
 
 export const TYPES = {
   stock: { label: 'Stocks', prefix: '$' },
@@ -7,15 +7,8 @@ export const TYPES = {
   crypto: { label: 'Crypto', prefix: '$' },
 }
 
-// Simulated instruments. vol = approximate daily volatility, adv = average daily volume (tick volume / USD)
+// Simulated instruments. vol = approximate daily volatility, adv = average daily volume (USD)
 export const SIM_ASSETS = [
-  { symbol: 'EUR/USD', name: 'Euro / US Dollar', type: 'forex', venue: 'FX', glyph: '€', price: 1.0912, vol: 0.004, dp: 4, adv: 4.2e5, spread: 0.6 },
-  { symbol: 'GBP/USD', name: 'British Pound / US Dollar', type: 'forex', venue: 'FX', glyph: '£', price: 1.3061, vol: 0.005, dp: 4, adv: 3.1e5, spread: 0.9 },
-  { symbol: 'USD/JPY', name: 'US Dollar / Japanese Yen', type: 'forex', venue: 'FX', glyph: '¥', price: 149.62, vol: 0.006, dp: 2, adv: 3.6e5, spread: 0.8 },
-  { symbol: 'USD/CHF', name: 'US Dollar / Swiss Franc', type: 'forex', venue: 'FX', glyph: '₣', price: 0.8624, vol: 0.005, dp: 4, adv: 1.4e5, spread: 1.2 },
-  { symbol: 'AUD/USD', name: 'Australian Dollar / US Dollar', type: 'forex', venue: 'FX', glyph: 'A$', price: 0.6702, vol: 0.006, dp: 4, adv: 1.9e5, spread: 0.8 },
-  { symbol: 'EUR/TND', name: 'Euro / Tunisian Dinar', type: 'forex', venue: 'FX', glyph: 'DT', price: 3.3815, vol: 0.003, dp: 4, adv: 2.2e4, spread: 4.5 },
-
   { symbol: 'BTC', name: 'Bitcoin', type: 'crypto', venue: 'USD', glyph: '₿', price: 67250.12, vol: 0.03, dp: 2, adv: 2.8e10, cap: 1.33e12 },
   { symbol: 'ETH', name: 'Ethereum', type: 'crypto', venue: 'USD', glyph: 'Ξ', price: 2610.48, vol: 0.035, dp: 2, adv: 1.4e10, cap: 3.14e11 },
   { symbol: 'SOL', name: 'Solana', type: 'crypto', venue: 'USD', glyph: '◎', price: 152.31, vol: 0.045, dp: 2, adv: 2.6e9, cap: 7.16e10 },
@@ -27,6 +20,23 @@ export const SIM_ASSETS = [
 // Builds the front-end asset shape from an /api/livedata/stocks quote.
 export function stockAsset(q) {
   return { symbol: q.symbol, name: q.name || q.symbol, type: 'stock', venue: q.exchange || 'US', glyph: q.symbol.slice(0, 2), dp: 2, live: true }
+}
+
+const CURRENCY_GLYPHS = { EUR: '€', GBP: '£', USD: '$', JPY: '¥', CHF: '₣', AUD: 'A$', CAD: 'C$', TND: 'DT', CNY: '¥' }
+
+// Builds the front-end asset shape from an /api/livedata/forex quote ("EUR/USD").
+export function forexAsset(q) {
+  const [base, quote] = q.symbol.split('/')
+  return {
+    symbol: q.symbol,
+    name: q.name || q.symbol,
+    type: 'forex',
+    venue: 'FX',
+    // USD/JPY shows ¥, not $: the non-dollar side tells the pairs apart.
+    glyph: base === 'USD' ? (CURRENCY_GLYPHS[quote] ?? quote) : (CURRENCY_GLYPHS[base] ?? base),
+    dp: quote === 'JPY' ? 3 : 5,
+    live: true,
+  }
 }
 
 const DAY = 864e5

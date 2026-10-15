@@ -16,5 +16,10 @@ export async function getJSON(path, { signal } = {}) {
 }
 
 export const fetchStocks = (opts) => getJSON('/api/livedata/stocks', opts)
-export const fetchBars = (symbol, range, opts) =>
-  getJSON(`/api/livedata/stocks/${encodeURIComponent(symbol)}/bars?range=${range}`, opts)
+export const fetchForex = (opts) => getJSON('/api/livedata/forex', opts)
+
+// Chart candles for a live asset: "AAPL" → /stocks/AAPL/bars, "EUR/USD" → /forex/EURUSD/bars
+export function fetchBars(asset, range, opts) {
+  const path = asset.type === 'forex' ? `forex/${asset.symbol.replace('/', '')}` : `stocks/${encodeURIComponent(asset.symbol)}`
+  return getJSON(`/api/livedata/${path}/bars?range=${range}`, opts)
+}

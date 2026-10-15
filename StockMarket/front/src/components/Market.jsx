@@ -31,10 +31,10 @@ function FeaturedBody({ symbol, available, onPick, quotes, bySymbol, onOpen }) {
   const chartCandles = withLivePrice(candles, quote.price)
 
   const strip = [
-    ['Open', fmtNumber(quote.open, asset.dp)],
+    [asset.type === 'forex' ? '24h open' : 'Open', fmtNumber(quote.open, asset.dp)],
     ['High', fmtNumber(quote.high, asset.dp)],
     ['Low', fmtNumber(quote.low, asset.dp)],
-    ['Volume', fmtCompact(quote.volume)],
+    ['Volume', quote.volume == null ? '—' : fmtCompact(quote.volume)],
   ]
 
   return (
