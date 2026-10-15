@@ -1,5 +1,7 @@
 // Thin client for the Alpaca Market Data API v2 and the Trading API (https://docs.alpaca.markets/reference).
 import { HttpError } from '../middlewares/errorHandler.js'
+// Short-lived cache so many browser tabs don't burn through the rate limit.
+import { cached } from './cache.js'
 
 // Chart ranges → Alpaca bar timeframe + how far back to fetch.
 export const RANGES = {
@@ -59,19 +61,6 @@ async function request(url) {
     throw new HttpError(502, `Alpaca error ${res.status}`)
   }
   return res.json()
-}
-
-// Short-lived in-memory cache so many browser tabs don't burn through the rate limit.
-const cache = new Map()
-function cached(key, ttlMs, load) {
-  const hit = cache.get(key)
-  if (hit && hit.expires > Date.now()) return hit.promise
-  const promise = load().catch((err) => {
-    cache.delete(key)
-    throw err
-  })
-  cache.set(key, { promise, expires: Date.now() + ttlMs })
-  return promise
 }
 
 const round = (value, dp) => (value == null ? null : Number(value.toFixed(dp)))
