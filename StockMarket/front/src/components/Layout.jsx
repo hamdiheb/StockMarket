@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react'
-import { ASSET_BY_SYMBOL } from '../data/markets'
 import { changeOf, fmtNumber } from '../lib/format'
 import { Avatar, Delta, LivePrice } from './Bits'
 import { FILTERS } from './filters'
@@ -39,7 +38,21 @@ function useClock() {
   return now
 }
 
-export function TopBar({ query, onQuery, onSubmit }) {
+const fmtLocalTime = (iso) =>
+  new Date(iso).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' })
+
+// What the status pill says: stream health first, then whether the US market is open.
+function marketStatus(stream, market) {
+  if (stream.state === 'error') return { tone: 'error', label: 'Stream offline', title: stream.message }
+  if (stream.state !== 'live') return { tone: 'idle', label: 'Connecting…', title: stream.message }
+  if (market && !market.isOpen) {
+    return { tone: 'idle', label: `Market closed · opens ${fmtLocalTime(market.nextOpen)}`, title: 'US stock market is closed' }
+  }
+  return { tone: 'live', label: 'Live', title: 'Streaming real-time trades from Alpaca' }
+}
+
+export function TopBar({ query, onQuery, onSubmit, stream, market }) {
+  const status = marketStatus(stream, market)
   const inputRef = useRef(null)
   const now = useClock()
 
@@ -75,9 +88,9 @@ export function TopBar({ query, onQuery, onSubmit }) {
         />
         <kbd className="mono">/</kbd>
       </form>
-      <div className="status-pill">
-        <span className="status-dot" aria-hidden="true" />
-        <span className="caption">Live</span>
+      <div className="status-pill" title={status.title} role="status">
+        <span className={`status-dot status-dot--${status.tone}`} aria-hidden="true" />
+        <span className="caption">{status.label}</span>
         <span className="mono caption">{now.toLocaleTimeString('en-GB')}</span>
       </div>
       <span className="account" aria-label="Account">IH</span>
@@ -129,11 +142,11 @@ const SIDE_TABS = [
   ['watch', 'Watchlist'],
 ]
 
-export function Sidebar({ quotes, watchlist, onOpen }) {
+export function Sidebar({ quotes, bySymbol, watchlist, onOpen }) {
   const [tab, setTab] = useState('gainers')
-  const symbols = Object.keys(quotes)
+  const symbols = Object.keys(quotes).filter((s) => bySymbol[s])
   let rows
-  if (tab === 'watch') rows = watchlist.filter((s) => quotes[s])
+  if (tab === 'watch') rows = watchlist.filter((s) => quotes[s] && bySymbol[s])
   else {
     const sign = tab === 'gainers' ? -1 : 1
     rows = symbols.sort((a, b) => sign * (changeOf(quotes[a]) - changeOf(quotes[b]))).slice(0, 10)
@@ -158,7 +171,7 @@ export function Sidebar({ quotes, watchlist, onOpen }) {
       {rows.length ? (
         <ul className="side-list">
           {rows.map((s) => (
-            <SidebarRow key={s} asset={ASSET_BY_SYMBOL[s]} quote={quotes[s]} onOpen={onOpen} />
+            <SidebarRow key={s} asset={bySymbol[s]} quote={quotes[s]} onOpen={onOpen} />
           ))}
         </ul>
       ) : (
@@ -168,8 +181,8 @@ export function Sidebar({ quotes, watchlist, onOpen }) {
   )
 }
 
-export function Footer({ quotes }) {
-  const ticker = ['BTC', 'EUR/USD', 'AAPL']
+export function Footer({ quotes, bySymbol, feed }) {
+  const ticker = ['AAPL', 'BTC', 'EUR/USD'].filter((s) => bySymbol[s] && quotes[s])
   return (
     <footer className="footer">
       <nav className="footer__links caption">
@@ -181,10 +194,10 @@ export function Footer({ quotes }) {
       <div className="footer__ticker caption">
         {ticker.map((s) => (
           <span key={s} className="mono">
-            <span className="fog">{s}</span> {fmtNumber(quotes[s].price, ASSET_BY_SYMBOL[s].dp)}
+            <span className="fog">{s}</span> {fmtNumber(quotes[s].price, bySymbol[s].dp)}
           </span>
         ))}
-        <span className="fog">Simulated data</span>
+        <span className="fog">Stocks: Alpaca{feed ? ` ${feed.toUpperCase()}` : ''} · FX &amp; crypto simulated</span>
       </div>
     </footer>
   )

@@ -1,5 +1,5 @@
-// Instrument catalogue + deterministic simulated price history.
-// Swap `generateCandles` / `useMarket` for a real data feed when one is available.
+// Instrument catalogue. Stocks come live from the API (see hooks/useMarket.js);
+// currencies and crypto are still simulated with a deterministic random walk.
 
 export const TYPES = {
   stock: { label: 'Stocks', prefix: '$' },
@@ -7,18 +7,8 @@ export const TYPES = {
   crypto: { label: 'Crypto', prefix: '$' },
 }
 
-// vol = approximate daily volatility, adv = average daily volume (shares / tick volume / USD)
-export const ASSETS = [
-  { symbol: 'AAPL', name: 'Apple Inc.', type: 'stock', venue: 'NASDAQ', glyph: 'AA', price: 231.42, vol: 0.016, dp: 2, adv: 54e6, cap: 3.52e12 },
-  { symbol: 'MSFT', name: 'Microsoft Corp.', type: 'stock', venue: 'NASDAQ', glyph: 'MS', price: 428.15, vol: 0.014, dp: 2, adv: 21e6, cap: 3.18e12 },
-  { symbol: 'NVDA', name: 'NVIDIA Corp.', type: 'stock', venue: 'NASDAQ', glyph: 'NV', price: 138.07, vol: 0.03, dp: 2, adv: 240e6, cap: 3.39e12 },
-  { symbol: 'GOOGL', name: 'Alphabet Inc.', type: 'stock', venue: 'NASDAQ', glyph: 'GO', price: 166.35, vol: 0.017, dp: 2, adv: 25e6, cap: 2.05e12 },
-  { symbol: 'AMZN', name: 'Amazon.com Inc.', type: 'stock', venue: 'NASDAQ', glyph: 'AM', price: 187.54, vol: 0.019, dp: 2, adv: 41e6, cap: 1.97e12 },
-  { symbol: 'TSLA', name: 'Tesla Inc.', type: 'stock', venue: 'NASDAQ', glyph: 'TS', price: 251.12, vol: 0.035, dp: 2, adv: 92e6, cap: 8.02e11 },
-  { symbol: 'META', name: 'Meta Platforms', type: 'stock', venue: 'NASDAQ', glyph: 'ME', price: 586.27, vol: 0.022, dp: 2, adv: 13e6, cap: 1.48e12 },
-  { symbol: 'JPM', name: 'JPMorgan Chase', type: 'stock', venue: 'NYSE', glyph: 'JP', price: 222.4, vol: 0.012, dp: 2, adv: 9e6, cap: 6.31e11 },
-  { symbol: 'NFLX', name: 'Netflix Inc.', type: 'stock', venue: 'NASDAQ', glyph: 'NF', price: 712.9, vol: 0.022, dp: 2, adv: 3.4e6, cap: 3.05e11 },
-
+// Simulated instruments. vol = approximate daily volatility, adv = average daily volume (tick volume / USD)
+export const SIM_ASSETS = [
   { symbol: 'EUR/USD', name: 'Euro / US Dollar', type: 'forex', venue: 'FX', glyph: '€', price: 1.0912, vol: 0.004, dp: 4, adv: 4.2e5, spread: 0.6 },
   { symbol: 'GBP/USD', name: 'British Pound / US Dollar', type: 'forex', venue: 'FX', glyph: '£', price: 1.3061, vol: 0.005, dp: 4, adv: 3.1e5, spread: 0.9 },
   { symbol: 'USD/JPY', name: 'US Dollar / Japanese Yen', type: 'forex', venue: 'FX', glyph: '¥', price: 149.62, vol: 0.006, dp: 2, adv: 3.6e5, spread: 0.8 },
@@ -34,7 +24,10 @@ export const ASSETS = [
   { symbol: 'ADA', name: 'Cardano', type: 'crypto', venue: 'USD', glyph: '₳', price: 0.3521, vol: 0.045, dp: 4, adv: 3.1e8, cap: 1.23e10 },
 ]
 
-export const ASSET_BY_SYMBOL = Object.fromEntries(ASSETS.map((a) => [a.symbol, a]))
+// Builds the front-end asset shape from an /api/livedata/stocks quote.
+export function stockAsset(q) {
+  return { symbol: q.symbol, name: q.name || q.symbol, type: 'stock', venue: q.exchange || 'US', glyph: q.symbol.slice(0, 2), dp: 2, live: true }
+}
 
 const DAY = 864e5
 export const RANGES = {

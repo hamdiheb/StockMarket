@@ -18,8 +18,9 @@ export function fmtCompact(value) {
   return compact.format(value)
 }
 
+// Change vs the previous close (the day's open for simulated instruments).
 export function changeOf(quote) {
-  return quote.price / quote.open - 1
+  return quote.price / (quote.prevClose || quote.open) - 1
 }
 
 export function fmtAxisTime(t, range) {

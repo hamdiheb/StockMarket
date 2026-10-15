@@ -1,7 +1,7 @@
 import { HttpError } from '../middlewares/errorHandler.js'
-import { RANGES, getBars, getSnapshots } from '../services/alpaca.js'
+import { RANGES, getAssetInfo, getBars, getClock, getSnapshots } from '../services/alpaca.js'
 
-// Same tickers the front end lists under "Stocks".
+// Default watch list returned when the client doesn't pass ?symbols=.
 export const DEFAULT_STOCKS = ['AAPL', 'MSFT', 'NVDA', 'GOOGL', 'AMZN', 'TSLA', 'META', 'JPM', 'NFLX']
 const MAX_SYMBOLS = 50
 const SYMBOL_RE = /^[A-Z][A-Z0-9.]{0,9}$/
@@ -19,8 +19,22 @@ export async function getStocks(req, res) {
     : DEFAULT_STOCKS
   if (symbols.length > MAX_SYMBOLS) throw new HttpError(400, `At most ${MAX_SYMBOLS} symbols per request`)
 
-  const { quotes, missing } = await getSnapshots(symbols)
-  res.json({ source: 'alpaca', feed: process.env.ALPACA_FEED || 'iex', fetchedAt: new Date().toISOString(), quotes, missing })
+  // Names and the market clock are nice-to-have: a failure there must not hide the prices.
+  const [{ quotes, missing }, infos, market] = await Promise.all([
+    getSnapshots(symbols),
+    Promise.all(symbols.map((s) => getAssetInfo(s).catch(() => ({ name: s, exchange: null })))),
+    getClock().catch(() => null),
+  ])
+  const infoBySymbol = Object.fromEntries(symbols.map((s, i) => [s, infos[i]]))
+
+  res.json({
+    source: 'alpaca',
+    feed: process.env.ALPACA_FEED || 'iex',
+    fetchedAt: new Date().toISOString(),
+    market,
+    quotes: quotes.map((q) => ({ ...q, ...infoBySymbol[q.symbol] })),
+    missing,
+  })
 }
 
 // GET /api/livedata/stocks/:symbol/bars?range=1D|1W|1M|1Y|5Y

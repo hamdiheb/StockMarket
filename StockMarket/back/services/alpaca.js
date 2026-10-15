@@ -1,4 +1,4 @@
-// Thin client for the Alpaca Market Data API v2 (https://docs.alpaca.markets/reference).
+// Thin client for the Alpaca Market Data API v2 and the Trading API (https://docs.alpaca.markets/reference).
 import { HttpError } from '../middlewares/errorHandler.js'
 
 // Chart ranges → Alpaca bar timeframe + how far back to fetch.
@@ -11,28 +11,35 @@ export const RANGES = {
 }
 
 const SNAPSHOT_CACHE_MS = 5e3
+const ASSET_CACHE_MS = 24 * 3600e3
+const CLOCK_CACHE_MS = 30e3
 const MAX_PAGES = 5
 const DAY_MS = 864e5
 
-function config() {
+function credentials() {
   const keyId = process.env.ALPACA_KEY_ID
   const secretKey = process.env.ALPACA_SECRET_KEY
   if (!keyId || !secretKey) throw new HttpError(503, 'Alpaca API keys are not configured on the server')
-  return {
-    keyId,
-    secretKey,
-    baseUrl: process.env.ALPACA_DATA_URL || 'https://data.alpaca.markets',
-    feed: process.env.ALPACA_FEED || 'iex',
-  }
+  return { keyId, secretKey }
 }
 
-async function alpacaGet(path, params = {}) {
-  const { keyId, secretKey, baseUrl, feed } = config()
-  const url = new URL(path, baseUrl)
-  for (const [key, value] of Object.entries({ feed, ...params })) {
+// Market data API: prices, snapshots, bars.
+function alpacaGet(path, params = {}) {
+  const url = new URL(path, process.env.ALPACA_DATA_URL || 'https://data.alpaca.markets')
+  for (const [key, value] of Object.entries({ feed: process.env.ALPACA_FEED || 'iex', ...params })) {
     if (value != null) url.searchParams.set(key, value)
   }
+  return request(url)
+}
 
+// Trading API: asset details, market clock. ALPACA_API_URL may be given with or without the /v2 suffix.
+function tradingGet(path) {
+  const base = (process.env.ALPACA_API_URL || 'https://paper-api.alpaca.markets/v2').replace(/\/+$/, '').replace(/\/v2$/, '')
+  return request(new URL(`${base}/v2${path}`))
+}
+
+async function request(url) {
+  const { keyId, secretKey } = credentials()
   let res
   try {
     res = await fetch(url, {
@@ -110,7 +117,26 @@ export function getSnapshots(symbols) {
   })
 }
 
-const nyDate = (t) => new Date(t).toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+// "Apple Inc. Common Stock" → "Apple Inc."
+const cleanName = (name) => name.replace(/\s+(Common Stock|Ordinary Shares|American Depositary Shares.*|Capital Stock)$/i, '').trim()
+
+// Company name + listing exchange, from the trading API's asset master. Cached for a day.
+export function getAssetInfo(symbol) {
+  return cached(`asset:${symbol}`, ASSET_CACHE_MS, async () => {
+    const asset = await tradingGet(`/assets/${encodeURIComponent(symbol)}`)
+    return { name: cleanName(asset.name || symbol), exchange: asset.exchange || null }
+  })
+}
+
+// Whether the US market is open right now, and the next open/close times.
+export function getClock() {
+  return cached('clock', CLOCK_CACHE_MS, async () => {
+    const clock = await tradingGet('/clock')
+    return { isOpen: clock.is_open, nextOpen: clock.next_open, nextClose: clock.next_close }
+  })
+}
+
+const nyDate =(t) => new Date(t).toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
 
 export function getBars(symbol, range) {
   const { timeframe, lookbackDays, lastSessionOnly, cacheMs } = RANGES[range]

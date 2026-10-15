@@ -1,15 +1,19 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { RANGES, TYPES, generateCandles } from '../data/markets'
+import { useEffect, useRef, useState } from 'react'
+import { RANGES, TYPES } from '../data/markets'
+import { useCandles, withLivePrice } from '../hooks/useMarket'
 import { fmtCompact, fmtNumber, fmtPrice } from '../lib/format'
 import { Avatar, Delta, LivePrice } from './Bits'
 import { CloseIcon, StarIcon } from './Icons'
+import { ChartPlaceholder } from './Market'
 import PriceChart from './PriceChart'
+
+const CHART_HEIGHT = 380
 
 export default function ChartWindow({ asset, quote, watched, onToggleWatch, onClose }) {
   const dialogRef = useRef(null)
   const [range, setRange] = useState('1D')
   const [mode, setMode] = useState('line')
-  // History is anchored to the price at open; the live quote then drives the last candle.
+  // Simulated history is anchored to the price at open; live stocks ignore this.
   const [anchor] = useState(quote.price)
 
   useEffect(() => {
@@ -18,32 +22,29 @@ export default function ChartWindow({ asset, quote, watched, onToggleWatch, onCl
     if (!dialog.open) dialog.showModal()
   }, [])
 
-  const base = useMemo(() => generateCandles(asset, range, anchor), [asset, range, anchor])
-  const year = useMemo(() => generateCandles(asset, '1Y', anchor), [asset, anchor])
+  const { candles, loading, error } = useCandles(asset, range, anchor)
+  const year = useCandles(asset, '1Y', anchor).candles
+  const chartCandles = withLivePrice(candles, quote.price)
 
-  const candles = useMemo(() => {
-    const next = base.slice()
-    const tail = { ...next[next.length - 1] }
-    tail.c = quote.price
-    tail.h = Math.max(tail.h, quote.price)
-    tail.l = Math.min(tail.l, quote.price)
-    next[next.length - 1] = tail
-    return next
-  }, [base, quote.price])
+  const diff = quote.price - quote.prevClose
+  const yearHigh = year?.length ? Math.max(quote.high, ...year.map((c) => c.h)) : null
+  const yearLow = year?.length ? Math.min(quote.low, ...year.map((c) => c.l)) : null
+  const dash = (v) => (v == null ? '—' : fmtNumber(v, asset.dp))
 
-  const diff = quote.price - quote.open
-  const yearHigh =Math.max(quote.high, ...year.map((c) => c.h))
-  const yearLow = Math.min(quote.low, ...year.map((c) => c.l))
-
+  const lastColumn = {
+    stock: ['Prev close', dash(quote.prevClose)],
+    forex: ['Spread', `${asset.spread} pips`],
+    crypto: ['Market cap', `$${fmtCompact(asset.cap ?? 0)}`],
+  }[asset.type]
   const stats = [
-    ['Open', fmtNumber(quote.open, asset.dp)],
-    ['Day high', fmtNumber(quote.high, asset.dp)],
-    ['Day low', fmtNumber(quote.low, asset.dp)],
+    ['Open', dash(quote.open)],
+    ['Day high', dash(quote.high)],
+    ['Day low', dash(quote.low)],
     [asset.type === 'forex' ? 'Tick volume' : 'Volume', fmtCompact(quote.volume)],
-    ['52W high', fmtNumber(yearHigh, asset.dp)],
-    ['52W low', fmtNumber(yearLow, asset.dp)],
-    asset.type === 'forex' ? ['Spread', `${asset.spread} pips`] : ['Market cap', `$${fmtCompact(asset.cap)}`],
-    ['Market', `${TYPES[asset.type].label} · ${asset.venue}`],
+    ['52W high', dash(yearHigh)],
+    ['52W low', dash(yearLow)],
+    lastColumn,
+    ['Source', asset.live ? 'Alpaca · live' : 'Simulated'],
   ]
 
   return (
@@ -80,6 +81,11 @@ export default function ChartWindow({ asset, quote, watched, onToggleWatch, onCl
           <span className="caption fog">
             <span className="mono">{diff >= 0 ? '+' : '−'}{fmtPrice(Math.abs(diff), asset)}</span> today
           </span>
+          {asset.live && quote.updatedAt && (
+            <span className="caption fog">
+              · last trade {new Date(quote.updatedAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+            </span>
+          )}
         </div>
 
         <div className="window__toolbar">
@@ -99,7 +105,13 @@ export default function ChartWindow({ asset, quote, watched, onToggleWatch, onCl
           </div>
         </div>
 
-        <PriceChart candles={candles} mode={mode} range={range} dp={asset.dp} height={380} />
+        {chartCandles?.length ? (
+          <PriceChart candles={chartCandles} mode={mode} range={range} dp={asset.dp} height={CHART_HEIGHT} />
+        ) : (
+          <ChartPlaceholder height={CHART_HEIGHT + 26}>
+            {error || (loading ? 'Loading chart…' : 'No trades in this range')}
+          </ChartPlaceholder>
+        )}
 
         <dl className="stats">
           {stats.map(([label, value]) => (

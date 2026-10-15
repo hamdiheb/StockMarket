@@ -213,6 +213,14 @@
   background: var(--color-ice-signal);
   animation: pulse 2s ease-in-out infinite;
 }
+.status-dot--idle {
+  background: var(--color-fog);
+  animation: none;
+}
+.status-dot--error {
+  background: var(--color-vermilion);
+  animation: none;
+}
 @keyframes pulse {
   50% {
     opacity: 0.35;
@@ -459,6 +467,24 @@
 }
 .empty {
   padding: var(--spacing-24) 0;
+}
+.notice {
+  padding: var(--spacing-16);
+}
+.notice__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-12);
+}
+.chart-placeholder {
+  display: grid;
+  place-items: center;
+  padding: var(--spacing-16);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-subtle);
+  text-align: center;
 }
 
 /* ---------- Sidebar ---------- */
