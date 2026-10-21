@@ -1,34 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { SIM_ASSETS, forexAsset, gaussian, generateCandles, stockAsset } from '../data/markets'
-import { STREAM_URL, fetchBars, fetchForex, fetchStocks } from '../lib/api'
+import { cryptoAsset, forexAsset, stockAsset } from '../data/markets'
+import { STREAM_URL, fetchBars, fetchCrypto, fetchForex, fetchStocks } from '../lib/api'
 
-const SIM_TICK_MS = 1600
 const SNAPSHOT_REFRESH_MS = 60e3
 const SPARK_POINTS = 48
+const STREAM_PROVIDERS = ['alpaca', 'alpacaCrypto', 'finnhub']
 
-// Live data sources. Forex snapshots already include a 24h trend line; stocks fetch theirs from 1D bars.
+// Live data sources. Forex snapshots already include a 24h trend line; stocks and crypto fetch theirs from 1D bars.
 const SOURCES = {
   stock: { fetchList: fetchStocks, toAsset: stockAsset, loadSparks: true },
   forex: { fetchList: fetchForex, toAsset: forexAsset, loadSparks: false },
-}
-
-function initialSimQuotes() {
-  const quotes = {}
-  for (const asset of SIM_ASSETS) {
-    const day = generateCandles(asset, '1D')
-    quotes[asset.symbol] = {
-      price: asset.price,
-      open: day[0].o,
-      prevClose: day[0].o,
-      high: Math.max(...day.map((c) => c.h)),
-      low: Math.min(...day.map((c) => c.l)),
-      volume: day.reduce((sum, c) => sum + c.v, 0),
-      spark: day.filter((_, i) => i % 2 === 1).map((c) => c.c),
-      dir: 0,
-      tick: 0,
-    }
-  }
-  return quotes
+  crypto: { fetchList: fetchCrypto, toAsset: cryptoAsset, loadSparks: true },
 }
 
 function sample(values, n) {
@@ -76,7 +58,7 @@ function applyTrades(prev, trades) {
   return next
 }
 
-// Loads one live source (stocks or forex) on mount and refreshes it every minute.
+// Loads one live source (stocks, forex or crypto) on mount and refreshes it every minute.
 function useLiveSource(type, setQuotes) {
   const { fetchList, toAsset, loadSparks } = SOURCES[type]
   const [assets, setAssets] = useState([])
@@ -138,7 +120,7 @@ function useLiveSource(type, setQuotes) {
 }
 
 // Real-time prices over the back end's WebSocket, reconnecting with backoff.
-// The back end routes stock symbols to Alpaca and currency pairs to Finnhub.
+// The back end routes stock symbols and crypto pairs to Alpaca, currency pairs to Finnhub.
 function useLiveStream(symbols, setQuotes) {
   const [streams, setStreams] = useState({})
   const symbolKey = symbols.join(',')
@@ -172,7 +154,7 @@ function useLiveStream(symbols, setQuotes) {
         if (closed) return
         const delay = Math.min(30e3, 1000 * 2 ** retry++)
         const down = { state: 'reconnecting', message: `Can't reach the live stream, retrying in ${Math.round(delay / 1000)}s` }
-        setStreams({ alpaca: down, finnhub: down })
+        setStreams(Object.fromEntries(STREAM_PROVIDERS.map((p) => [p, down])))
         timer = setTimeout(connect, delay)
       }
     }
@@ -188,61 +170,35 @@ function useLiveStream(symbols, setQuotes) {
   return streams
 }
 
-// Live stocks (Alpaca) and currencies (Twelve Data + Finnhub), simulated crypto.
+// Live stocks and crypto (Alpaca) and currencies (Twelve Data + Finnhub).
 export function useMarket() {
-  const [quotes, setQuotes] = useState(initialSimQuotes)
+  const [quotes, setQuotes] = useState({})
   const stocks = useLiveSource('stock', setQuotes)
   const forex = useLiveSource('forex', setQuotes)
+  const crypto = useLiveSource('crypto', setQuotes)
 
-  // Simulated feed for crypto.
-  useEffect(() => {
-    const id = setInterval(() => {
-      setQuotes((prev) => {
-        const next = { ...prev }
-        for (const asset of SIM_ASSETS) {
-          if (Math.random() > 0.45) continue
-          const q = prev[asset.symbol]
-          const price = q.price * Math.exp(gaussian() * asset.vol * 0.025)
-          next[asset.symbol] = {
-            ...q,
-            price,
-            high: Math.max(q.high, price),
-            low: Math.min(q.low, price),
-            volume: q.volume + asset.adv * 0.0004 * Math.random(),
-            spark: [...q.spark.slice(1), price],
-            dir: price >= q.price ? 1 : -1,
-            tick: q.tick + 1,
-          }
-        }
-        return next
-      })
-    }, SIM_TICK_MS)
-    return () => clearInterval(id)
-  }, [])
-
-  const liveSymbols = useMemo(() => [...stocks.assets, ...forex.assets].map((a) => a.symbol), [stocks.assets, forex.assets])
+  const assets = useMemo(() => [...stocks.assets, ...forex.assets, ...crypto.assets], [stocks.assets, forex.assets, crypto.assets])
+  const liveSymbols = useMemo(() => assets.map((a) => a.symbol), [assets])
   const streams = useLiveStream(liveSymbols, setQuotes)
 
-  const assets = useMemo(() => [...stocks.assets, ...forex.assets, ...SIM_ASSETS], [stocks.assets, forex.assets])
   const bySymbol = useMemo(() => Object.fromEntries(assets.map((a) => [a.symbol, a])), [assets])
-  const sources = { stock: { ...stocks.status, retry: stocks.retry }, forex: { ...forex.status, retry: forex.retry } }
+  const sources = {
+    stock: { ...stocks.status, retry: stocks.retry },
+    forex: { ...forex.status, retry: forex.retry },
+    crypto: { ...crypto.status, retry: crypto.retry },
+  }
 
   return { assets, bySymbol, quotes, sources, streams }
 }
 
-// Candles for a chart: fetched from the API for live assets, simulated for everything else.
-// `anchor` pins the simulated walk's end price; it's ignored for live assets.
-export function useCandles(asset, range, anchor) {
-  const live = Boolean(asset.live)
+// Candles for a chart, fetched from the API.
+export function useCandles(asset, range) {
   const key = `${asset.symbol}:${range}`
   const [state, setState] = useState({ key: null, candles: null, error: null })
-
-  const simulated = useMemo(() => (live ? null : generateCandles(asset, range, anchor)), [live, asset, range, anchor])
   // The asset object is rebuilt on every snapshot refresh; symbol + type identify it.
   const { symbol, type } = asset
 
   useEffect(() => {
-    if (!live) return
     const ctrl = new AbortController()
     const load = () =>
       fetchBars({ symbol, type }, range, { signal: ctrl.signal })
@@ -255,9 +211,8 @@ export function useCandles(asset, range, anchor) {
       ctrl.abort()
       clearInterval(id)
     }
-  }, [live, symbol, type, range, key])
+  }, [symbol, type, range, key])
 
-  if (!live) return { candles: simulated, loading: false, error: null }
   const current = state.key === key
   return {
     candles: current ? state.candles : null,
@@ -279,13 +234,17 @@ export function withLivePrice(candles, price) {
 }
 
 const WATCH_KEY = 'stockmarket.watchlist'
+const DEFAULT_WATCHLIST = ['NVDA', 'BTC/USD', 'EUR/USD']
+const LEGACY_CRYPTO = ['BTC', 'ETH', 'SOL', 'XRP', 'BNB', 'ADA']
 
 export function useWatchlist() {
   const [list, setList] = useState(() => {
     try {
-      return JSON.parse(localStorage.getItem(WATCH_KEY)) ?? ['NVDA', 'BTC', 'EUR/USD']
+      const saved = JSON.parse(localStorage.getItem(WATCH_KEY))
+      // Crypto used to be keyed "BTC"; it's now the Alpaca pair "BTC/USD".
+      return saved ? saved.map((s) => (LEGACY_CRYPTO.includes(s) ? `${s}/USD` : s)) : DEFAULT_WATCHLIST
     } catch {
-      return ['NVDA', 'BTC', 'EUR/USD']
+      return DEFAULT_WATCHLIST
     }
   })
 

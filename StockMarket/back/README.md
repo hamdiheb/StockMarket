@@ -18,7 +18,7 @@ Get keys at https://app.alpaca.markets (a free paper-trading account works). The
 server.js       app setup: dotenv, cors, routes, error handling
 routes/         URL → controller mapping
 controllers/    request validation and response shaping
-services/       external API clients (Alpaca)
+services/       external API clients (Alpaca, Twelve Data, Finnhub)
 middlewares/    error handler, 404, request logger
 database/       reserved for persistence (not used yet)
 ```
@@ -32,10 +32,15 @@ database/       reserved for persistence (not used yet)
 | GET | `/api/livedata/stocks/:symbol/bars?range=1D` | Chart candles `{ t, o, h, l, c, v }` for `1D`, `1W`, `1M`, `1Y`, `5Y` |
 | GET | `/api/livedata/forex?pairs=EUR/USD,GBP/USD` | Twelve Data rolling-24h snapshot per pair (price, open, high, low, change, 48-point `spark`). Default: 6 pairs. Cached 15 min. |
 | GET | `/api/livedata/forex/:pair/bars?range=1D` | Forex candles (`:pair` as `EURUSD` or `EUR-USD`), `v` is always 0 |
+| GET | `/api/livedata/crypto?symbols=BTC/USD,ETH/USD` | Alpaca crypto snapshot, same shape as stocks (`volume` in coins, day = UTC day). Without `symbols` it returns 9 default pairs. Cached 5s. |
+| GET | `/api/livedata/crypto/:pair/bars?range=1D` | Crypto candles (`:pair` as `BTC-USD`); `1D` is the last 24 hours |
 
 Twelve Data's free plan allows 8 requests/min and 800/day (1 per pair). The server queues requests to
 stay under the per-minute limit and caches heavily; a page load costs 6 credits at most every 15 minutes.
 Live currency prices stream from Finnhub (OANDA) through the same WebSocket — subscribe with `"EUR/USD"`.
+Crypto streams from Alpaca's crypto endpoint (a separate connection from stocks) — subscribe with `"BTC/USD"`;
+the server tells crypto from currency pairs using Alpaca's crypto asset list. Trades on Alpaca's crypto venue
+are minutes apart, so crypto prices also move on quotes (bid/ask midpoint, `size` 0).
 EUR/TND isn't on Finnhub, so it only updates with the 15-minute snapshot.
 
 ## Real-time stream

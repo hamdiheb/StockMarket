@@ -182,7 +182,7 @@ export function Sidebar({ quotes, bySymbol, watchlist, onOpen }) {
 }
 
 export function Footer({ quotes, bySymbol, stockFeed }) {
-  const ticker = ['AAPL', 'BTC', 'EUR/USD'].filter((s) => bySymbol[s] && quotes[s])
+  const ticker = ['AAPL', 'BTC/USD', 'EUR/USD'].filter((s) => bySymbol[s] && quotes[s])
   return (
     <footer className="footer">
       <nav className="footer__links caption">
@@ -198,7 +198,7 @@ export function Footer({ quotes, bySymbol, stockFeed }) {
           </span>
         ))}
         <span className="fog">
-          Stocks: Alpaca{stockFeed ? ` ${stockFeed.toUpperCase()}` : ''} · FX: Twelve Data + Finnhub · Crypto simulated
+          Stocks: Alpaca{stockFeed ? ` ${stockFeed.toUpperCase()}` : ''} · FX: Twelve Data + Finnhub · Crypto: Alpaca
         </span>
       </div>
     </footer>

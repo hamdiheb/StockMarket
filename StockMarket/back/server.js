@@ -23,7 +23,7 @@ app.use(notFound)
 app.use(errorHandler)
 
 const REQUIRED_KEYS = {
-  'Stocks (Alpaca)': ['ALPACA_KEY_ID', 'ALPACA_SECRET_KEY'],
+  'Stocks & crypto (Alpaca)': ['ALPACA_KEY_ID', 'ALPACA_SECRET_KEY'],
   'Forex history (Twelve Data)': ['TWELVEDATA_API_KEY'],
   'Forex live (Finnhub)': ['FINNHUB_API_KEY'],
 }

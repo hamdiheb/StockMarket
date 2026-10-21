@@ -6,7 +6,7 @@ import { Avatar, Delta, LivePrice, Sparkline } from './Bits'
 import { ExpandIcon } from './Icons'
 import PriceChart from './PriceChart'
 
-const FEATURED = ['NVDA', 'TSLA', 'BTC', 'EUR/USD']
+const FEATURED = ['NVDA', 'TSLA', 'BTC/USD', 'EUR/USD']
 
 export function ChartPlaceholder({ height, children }) {
   return (
@@ -55,7 +55,6 @@ function FeaturedBody({ symbol, available, onPick, quotes, bySymbol, onOpen }) {
             </h2>
             <p className="caption fog">
               <span className="mono">{asset.symbol}</span> · {asset.venue} · {TYPES[asset.type].label}
-              {!asset.live && ' · simulated'}
             </p>
           </div>
         </div>

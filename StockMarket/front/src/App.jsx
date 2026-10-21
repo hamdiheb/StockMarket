@@ -9,8 +9,11 @@ import './App.css'
 const SECTIONS = [
   { id: 'stock', title: 'Stocks', subtitle: 'US equities · live from Alpaca', noun: 'stock prices' },
   { id: 'forex', title: 'Currencies', subtitle: 'Major and regional FX pairs · 24h change · Twelve Data + Finnhub live', noun: 'currency rates' },
-  { id: 'crypto', title: 'Crypto', subtitle: 'Top digital assets priced in USD · simulated' },
+  { id: 'crypto', title: 'Crypto', subtitle: 'Top digital assets priced in USD · live from Alpaca', noun: 'crypto prices' },
 ]
+
+// Live-stream provider behind each section (stocks' state shows in the top bar instead).
+const STREAM_OF = { forex: 'finnhub', crypto: 'alpacaCrypto' }
 
 function matches(asset, q) {
   return asset.symbol.toLowerCase().includes(q) || asset.name.toLowerCase().includes(q)
@@ -86,7 +89,7 @@ export default function App() {
                   key={s.id}
                   id={s.id}
                   title={s.title}
-                  subtitle={s.subtitle + (s.id === 'forex' ? streamNote(streams.finnhub) : '')}
+                  subtitle={s.subtitle + streamNote(streams[STREAM_OF[s.id]])}
                   assets={visible.filter((a) => a.type === s.id)}
                   quotes={quotes}
                   onOpen={setOpen}

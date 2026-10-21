@@ -13,8 +13,6 @@ export default function ChartWindow({ asset, quote, watched, onToggleWatch, onCl
   const dialogRef = useRef(null)
   const [range, setRange] = useState('1D')
   const [mode, setMode] = useState('line')
-  // Simulated history is anchored to the price at open; live stocks ignore this.
-  const [anchor] = useState(quote.price)
 
   useEffect(() => {
     // No close() in cleanup: its async `close` event would dismiss the window under StrictMode.
@@ -22,8 +20,8 @@ export default function ChartWindow({ asset, quote, watched, onToggleWatch, onCl
     if (!dialog.open) dialog.showModal()
   }, [])
 
-  const { candles, loading, error } = useCandles(asset, range, anchor)
-  const year = useCandles(asset, '1Y', anchor).candles
+  const { candles, loading, error } = useCandles(asset, range)
+  const year = useCandles(asset, '1Y').candles
   const chartCandles = withLivePrice(candles, quote.price)
 
   const diff = quote.price - quote.prevClose
@@ -37,11 +35,11 @@ export default function ChartWindow({ asset, quote, watched, onToggleWatch, onCl
   const extra = {
     stock: ['Prev close', dash(quote.prevClose)],
     forex: ['History', 'Twelve Data'],
-    crypto: ['Market cap', `$${fmtCompact(asset.cap ?? 0)}`],
+    crypto: ['Prev close (UTC)', dash(quote.prevClose)],
   }[asset.type]
   // Pairs Finnhub doesn't stream (e.g. EUR/TND) only refresh with the Twelve Data snapshot.
   const forexSource = quote.tick > 0 ? 'Finnhub · live' : 'Twelve Data · every 15 min'
-  const source = { stock: 'Alpaca · live', forex: forexSource, crypto: 'Simulated' }[asset.type]
+  const source = { stock: 'Alpaca · live', forex: forexSource, crypto: 'Alpaca · live' }[asset.type]
   const stats = [
     [isForex ? '24h open' : 'Open', dash(quote.open)],
     [`${period} high`, dash(quote.high)],
@@ -96,7 +94,7 @@ export default function ChartWindow({ asset, quote, watched, onToggleWatch, onCl
 
         <div className="window__toolbar">
           <div className="segmented" role="tablist" aria-label="Time range">
-            {Object.keys(RANGES).map((key) => (
+            {RANGES.map((key) => (
               <button key={key} type="button" role="tab" aria-selected={range === key} className="pill" onClick={() => setRange(key)}>
                 {key}
               </button>

@@ -8,10 +8,12 @@ const CONNECTION_LIMIT_BACKOFF_MS = 15e3
 
 class AlpacaStream extends UpstreamStream {
   // baseUrl() and feed are per endpoint: the socket URL is `${baseUrl()}/${feed}`.
-  constructor(provider, { baseUrl, feed }) {
+  // quotePrices: also stream quotes and relay each bid/ask midpoint as a price update.
+  constructor(provider, { baseUrl, feed, quotePrices = false }) {
     super(provider)
     this.baseUrl = baseUrl
     this.feedOf = feed
+    this.quotePrices = quotePrices
   }
 
   get feed() {
@@ -26,12 +28,16 @@ class AlpacaStream extends UpstreamStream {
     return `${this.baseUrl()}/${this.feed}`
   }
 
+  channels(symbols) {
+    return { trades: symbols, bars: symbols, ...(this.quotePrices && { quotes: symbols }) }
+  }
+
   subscribe(symbols) {
-    this.send({ action: 'subscribe', trades: symbols, bars: symbols })
+    this.send({ action: 'subscribe', ...this.channels(symbols) })
   }
 
   unsubscribe(symbols) {
-    this.send({ action: 'unsubscribe', trades: symbols, bars: symbols })
+    this.send({ action: 'unsubscribe', ...this.channels(symbols) })
   }
 
   onMessage(messages) {
@@ -39,6 +45,10 @@ class AlpacaStream extends UpstreamStream {
       switch (msg.T) {
         case 't':
           this.emit('trade', { symbol: msg.S, price: msg.p, size: msg.s, t: Date.parse(msg.t) })
+          break
+        case 'q':
+          // A quote moves the price but adds no volume.
+          if (msg.bp > 0 && msg.ap > 0) this.emit('trade', { symbol: msg.S, price: (msg.bp + msg.ap) / 2, size: 0, t: Date.parse(msg.t) })
           break
         case 'b':
           this.emit('bar', { symbol: msg.S, bar: { t: Date.parse(msg.t), o: msg.o, h: msg.h, l: msg.l, c: msg.c, v: msg.v } })
@@ -79,4 +89,6 @@ export const alpacaStream = new AlpacaStream('alpaca', {
 export const alpacaCryptoStream = new AlpacaStream('alpacaCrypto', {
   baseUrl: () => process.env.ALPACA_CRYPTO_STREAM_URL || 'wss://stream.data.alpaca.markets/v1beta3/crypto',
   feed: () => 'us',
+  // Crypto trades on Alpaca's venue are minutes apart; quotes keep the price moving.
+  quotePrices: true,
 })

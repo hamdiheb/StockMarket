@@ -180,6 +180,17 @@ export function getBars(symbol, range) {
 
 // ---- Crypto (https://docs.alpaca.markets/reference/cryptosnapshots-1) ----
 
+// Trades are sparse on Alpaca's crypto venue (minutes apart), so a newer bid/ask midpoint is
+// the better current price. The live stream uses the same rule (see alpacaStream.js).
+function normalizeCryptoSnapshot(symbol, snap) {
+  const q = normalizeSnapshot(symbol, snap)
+  const { bp, ap, t } = snap.latestQuote ?? {}
+  if (!(bp > 0 && ap > 0) || (q.updatedAt && Date.parse(t) <= Date.parse(q.updatedAt))) return q
+  const price = round((bp + ap) / 2, 8)
+  const change = q.prevClose ? round(price - q.prevClose, 8) : null
+  return { ...q, price, change, changePct: change != null ? round(change / q.prevClose, 6) : null, bid: bp, ask: ap, updatedAt: t }
+}
+
 export function getCryptoSnapshots(symbols) {
   const key = `crypto-snap:${symbols.join(',')}`
   return cached(key, SNAPSHOT_CACHE_MS, async () => {
@@ -187,7 +198,7 @@ export function getCryptoSnapshots(symbols) {
     const quotes = []
     const missing = []
     for (const symbol of symbols) {
-      if (snapshots[symbol]) quotes.push(normalizeSnapshot(symbol, snapshots[symbol]))
+      if (snapshots[symbol]) quotes.push(normalizeCryptoSnapshot(symbol, snapshots[symbol]))
       else missing.push(symbol)
     }
     return { quotes, missing }
