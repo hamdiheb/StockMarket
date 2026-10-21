@@ -4,7 +4,9 @@ import express from 'express'
 import { STREAM_PATH, UPSTREAMS, attachLiveStream } from './controllers/streamController.js'
 import { errorHandler, notFound } from './middlewares/errorHandler.js'
 import { requestLogger } from './middlewares/requestLogger.js'
+import analysisRoutes from './routes/analysis.js'
 import liveDataRoutes from './routes/liveData.js'
+import { checkOllama, ollamaUrl } from './services/ollama.js'
 
 const app = express()
 const PORT = Number(process.env.PORT) || 4000
@@ -18,6 +20,7 @@ app.get('/api/health', (_req, res) =>
   res.json({ status: 'ok', streams: UPSTREAMS.map((up) => ({ ...up.info, symbols: up.symbols })) }),
 )
 app.use('/api/livedata', liveDataRoutes)
+app.use('/api/analysis', analysisRoutes)
 
 app.use(notFound)
 app.use(errorHandler)
