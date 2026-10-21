@@ -38,6 +38,9 @@ const server = app.listen(PORT, () => {
     const unset = keys.filter((k) => !process.env[k])
     if (unset.length) console.warn(`${feature}: ${unset.join(', ')} not set — this data will be unavailable`)
   }
+  checkOllama().catch((err) =>
+    console.warn(`AI analysis (Ollama at ${ollamaUrl()}): ${err.message.startsWith('model') ? err.message : 'not reachable'} — signals will be unavailable`),
+  )
 })
 attachLiveStream(server, origins)
 for (const up of UPSTREAMS) {

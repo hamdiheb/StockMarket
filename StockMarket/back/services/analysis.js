@@ -175,6 +175,10 @@ export function evaluate(ctx, out) {
   for (const k of ['1D', '1W']) {
     if (tfs[k]?.trend === opposite[trend]) reasons.push(`Timeframes disagree: the ${k} trend is ${tfs[k].trend}`)
   }
+  // Buying overbought / selling oversold is chasing a move that's likely to snap back: never actionable.
+  if (trig.rsi != null && (dir > 0 ? trig.rsi > 70 : trig.rsi < 30)) {
+    reasons.push(`Momentum exhausted: RSI ${trig.rsi.toFixed(0)} is ${dir > 0 ? 'overbought' : 'oversold'}`)
+  }
 
   // Deterministic setup score, independent of the model.
   const list = Object.values(tfs)
@@ -191,10 +195,9 @@ export function evaluate(ctx, out) {
   if (setupScore < MIN_SETUP_SCORE) {
     const weak = []
     if (breakdown.trend < 40) weak.push(`${agree}/${list.length} timeframes confirm the ${trend}trend`)
-    if (!breakdown.momentum) weak.push(`RSI ${trig.rsi?.toFixed(0)} is ${dir > 0 ? 'overbought' : 'oversold'}`)
     if (!breakdown.riskReward) weak.push(`risk/reward ${riskReward?.toFixed(2) ?? '—'} is below ${MIN_RR}`)
     if (breakdown.volume === 0) weak.push('volume is below average')
-    reasons.push(`Setup score ${setupScore} is below ${MIN_SETUP_SCORE}: ${weak.join(', ')}`)
+    reasons.push(`Setup score ${setupScore} is below ${MIN_SETUP_SCORE}${weak.length ? `: ${weak.join(', ')}` : ''}`)
   }
 
   const actionable = reasons.length === 0
