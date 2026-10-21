@@ -1,13 +1,21 @@
-// Real-time stock trades from Alpaca (https://docs.alpaca.markets/docs/streaming-market-data).
-// Most plans allow ONE connection per account, so every browser shares this one.
+// Real-time trades from Alpaca (https://docs.alpaca.markets/docs/streaming-market-data).
+// Stocks and crypto are separate endpoints with the same message format. Most plans allow
+// ONE connection per endpoint per account, so every browser shares these.
 import { UpstreamStream } from './upstreamStream.js'
 
 const FATAL_CODES = new Set([402, 409]) // bad keys / feed not in plan: retrying won't help
 const CONNECTION_LIMIT_BACKOFF_MS = 15e3
 
 class AlpacaStream extends UpstreamStream {
+  // baseUrl() and feed are per endpoint: the socket URL is `${baseUrl()}/${feed}`.
+  constructor(provider, { baseUrl, feed }) {
+    super(provider)
+    this.baseUrl = baseUrl
+    this.feedOf = feed
+  }
+
   get feed() {
-    return process.env.ALPACA_STREAM_FEED || process.env.ALPACA_FEED || 'iex'
+    return this.feedOf()
   }
 
   url() {
@@ -15,7 +23,7 @@ class AlpacaStream extends UpstreamStream {
       this.setState('error', 'Alpaca API keys are not configured on the server')
       return null
     }
-    return `${process.env.ALPACA_STREAM_URL || 'wss://stream.data.alpaca.markets/v2'}/${this.feed}`
+    return `${this.baseUrl()}/${this.feed}`
   }
 
   subscribe(symbols) {
@@ -51,7 +59,7 @@ class AlpacaStream extends UpstreamStream {
   }
 
   onError({ code, msg }) {
-    console.warn(`Alpaca stream error ${code}: ${msg}`)
+    console.warn(`${this.provider} stream error ${code}: ${msg}`)
     if (FATAL_CODES.has(code)) {
       this.fail(`Alpaca: ${msg}`)
     } else if (code === 406) {
@@ -63,4 +71,12 @@ class AlpacaStream extends UpstreamStream {
   }
 }
 
-export const alpacaStream = new AlpacaStream('alpaca')
+export const alpacaStream = new AlpacaStream('alpaca', {
+  baseUrl: () => process.env.ALPACA_STREAM_URL || 'wss://stream.data.alpaca.markets/v2',
+  feed: () => process.env.ALPACA_STREAM_FEED || process.env.ALPACA_FEED || 'iex',
+})
+
+export const alpacaCryptoStream = new AlpacaStream('alpacaCrypto', {
+  baseUrl: () => process.env.ALPACA_CRYPTO_STREAM_URL || 'wss://stream.data.alpaca.markets/v1beta3/crypto',
+  feed: () => 'us',
+})

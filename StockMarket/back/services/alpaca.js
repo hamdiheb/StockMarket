@@ -12,11 +12,22 @@ export const RANGES = {
   '5Y': { timeframe: '1Week', lookbackDays: 5 * 366, cacheMs: 60 * 60e3 },
 }
 
+// Crypto trades around the clock, so 1D is simply the last 24 hours.
+export const CRYPTO_RANGES = {
+  '1D': { timeframe: '5Min', lookbackDays: 1, cacheMs: 30e3 },
+  '1W': RANGES['1W'],
+  '1M': RANGES['1M'],
+  '1Y': RANGES['1Y'],
+  '5Y': RANGES['5Y'],
+}
+
 const SNAPSHOT_CACHE_MS = 5e3
 const ASSET_CACHE_MS = 24 * 3600e3
 const CLOCK_CACHE_MS = 30e3
 const MAX_PAGES = 5
 const DAY_MS = 864e5
+// Alpaca's crypto data location ("us" = Alpaca's own US exchange).
+const CRYPTO_LOC = 'us'
 
 function credentials() {
   const keyId = process.env.ALPACA_KEY_ID
@@ -26,13 +37,17 @@ function credentials() {
 }
 
 // Market data API: prices, snapshots, bars.
-function alpacaGet(path, params = {}) {
+function dataGet(path, params = {}) {
   const url = new URL(path, process.env.ALPACA_DATA_URL || 'https://data.alpaca.markets')
-  for (const [key, value] of Object.entries({ feed: process.env.ALPACA_FEED || 'iex', ...params })) {
+  for (const [key, value] of Object.entries(params)) {
     if (value != null) url.searchParams.set(key, value)
   }
   return request(url)
 }
+
+const alpacaGet = (path, params = {}) => dataGet(path, { feed: process.env.ALPACA_FEED || 'iex', ...params })
+// Crypto has no feed parameter; symbols are pairs like "BTC/USD".
+const cryptoGet = (path, params = {}) => dataGet(`/v1beta3/crypto/${CRYPTO_LOC}${path}`, params)
 
 // Trading API: asset details, market clock. ALPACA_API_URL may be given with or without the /v2 suffix.
 function tradingGet(path) {
@@ -127,31 +142,76 @@ export function getClock() {
 
 const nyDate =(t) => new Date(t).toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
 
+// Follows next_page_token; fetchPage(pageToken) returns { bars: [...], next_page_token }.
+async function pagedBars(fetchPage) {
+  const raw = []
+  let pageToken
+  let pages = 0
+  do {
+    const data = await fetchPage(pageToken)
+    raw.push(...(data.bars ?? []))
+    pageToken = data.next_page_token
+  } while (pageToken && ++pages < MAX_PAGES)
+  return raw.map((b) => ({ t: Date.parse(b.t), o: b.o, h: b.h, l: b.l, c: b.c, v: b.v }))
+}
+
+const barParams = (timeframe, lookbackDays) => ({
+  timeframe,
+  start: new Date(Date.now() - lookbackDays * DAY_MS).toISOString(),
+  limit: 10000,
+  sort: 'asc',
+})
+
 export function getBars(symbol, range) {
   const { timeframe, lookbackDays, lastSessionOnly, cacheMs } = RANGES[range]
   return cached(`bars:${symbol}:${range}`, cacheMs, async () => {
-    const params = {
-      timeframe,
-      start: new Date(Date.now() - lookbackDays * DAY_MS).toISOString(),
-      limit: 10000,
-      adjustment: 'split',
-      sort: 'asc',
-    }
-    const raw = []
-    let pageToken
-    let pages = 0
-    do {
-      const data = await alpacaGet(`/v2/stocks/${encodeURIComponent(symbol)}/bars`, { ...params, page_token: pageToken })
-      raw.push(...(data.bars ?? []))
-      pageToken = data.next_page_token
-    } while (pageToken && ++pages < MAX_PAGES)
-
-    let bars = raw.map((b) => ({ t: Date.parse(b.t), o: b.o, h: b.h, l: b.l, c: b.c, v: b.v }))
+    const params = { ...barParams(timeframe, lookbackDays), adjustment: 'split' }
+    let bars = await pagedBars((pageToken) =>
+      alpacaGet(`/v2/stocks/${encodeURIComponent(symbol)}/bars`, { ...params, page_token: pageToken }),
+    )
     // 1D shows only the most recent trading session (handles weekends and holidays).
     if (lastSessionOnly && bars.length) {
       const lastDay = nyDate(bars[bars.length - 1].t)
       bars = bars.filter((b) => nyDate(b.t) === lastDay)
     }
+    return { symbol, range, timeframe, bars }
+  })
+}
+
+// ---- Crypto (https://docs.alpaca.markets/reference/cryptosnapshots-1) ----
+
+export function getCryptoSnapshots(symbols) {
+  const key = `crypto-snap:${symbols.join(',')}`
+  return cached(key, SNAPSHOT_CACHE_MS, async () => {
+    const { snapshots = {} } = await cryptoGet('/snapshots', { symbols: symbols.join(',') })
+    const quotes = []
+    const missing = []
+    for (const symbol of symbols) {
+      if (snapshots[symbol]) quotes.push(normalizeSnapshot(symbol, snapshots[symbol]))
+      else missing.push(symbol)
+    }
+    return { quotes, missing }
+  })
+}
+
+// Every crypto pair Alpaca lists, as { "BTC/USD": "Bitcoin" }. Cached for a day.
+export function getCryptoAssets() {
+  return cached('crypto-assets', ASSET_CACHE_MS, async () => {
+    const assets = await tradingGet('/assets?asset_class=crypto&status=active')
+    // "Bitcoin  / US Dollar" → "Bitcoin"
+    return Object.fromEntries(assets.map((a) => [a.symbol, (a.name || a.symbol).split(' / ')[0].trim()]))
+  })
+}
+
+export function getCryptoBars(symbol, range) {
+  const { timeframe, lookbackDays, cacheMs } = CRYPTO_RANGES[range]
+  return cached(`crypto-bars:${symbol}:${range}`, cacheMs, async () => {
+    const params = { ...barParams(timeframe, lookbackDays), symbols: symbol }
+    // The crypto endpoint is multi-symbol: bars come back keyed by pair.
+    const bars = await pagedBars(async (pageToken) => {
+      const data = await cryptoGet('/bars', { ...params, page_token: pageToken })
+      return { bars: data.bars?.[symbol], next_page_token: data.next_page_token }
+    })
     return { symbol, range, timeframe, bars }
   })
 }
