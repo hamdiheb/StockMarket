@@ -12,6 +12,16 @@ export function Avatar({ asset, size = 32, square = false }) {
   )
 }
 
+// "BUY 86%" / "SELL 82%" for an actionable AI signal; nothing otherwise.
+export function SignalBadge({ signal }) {
+  if (!signal) return null
+  return (
+    <span className={`signal-badge signal-badge--${signal.signal.toLowerCase()}`} title={`AI signal · ${signal.confidence}% confidence`}>
+      {signal.signal} {signal.confidence}%
+    </span>
+  )
+}
+
 export function Delta({ quote, className = '' }) {
   const change = changeOf(quote)
   return (

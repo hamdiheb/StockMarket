@@ -1,9 +1,12 @@
 import { useState } from 'react'
+import { SignalBadge } from './components/Bits'
 import ChartWindow from './components/ChartWindow'
 import { FILTERS } from './components/filters'
 import { FilterBar, Footer, IconRail, Sidebar, TopBar } from './components/Layout'
 import { FeaturedCard, MarketSection } from './components/Market'
+import { activeSignal, useAnalysis } from './hooks/useAnalysis'
 import { useMarket, useWatchlist } from './hooks/useMarket'
+import { fmtNumber } from './lib/format'
 import './App.css'
 
 const SECTIONS = [
@@ -34,6 +37,32 @@ function SourceNotice({ source, noun }) {
     )
   }
   return <p className="fog">The data provider returned nothing.</p>
+}
+
+// Auto-watch alerts for new actionable signals. Clicking one opens that chart.
+function Toasts({ toasts, bySymbol, onOpen, onDismiss }) {
+  if (!toasts.length) return null
+  return (
+    <div className="toasts" role="status" aria-live="polite">
+      {toasts.map(({ id, symbol, data }) => {
+        const dp = bySymbol[symbol]?.dp ?? 2
+        return (
+          <div key={id} className={`toast toast--${data.signal.toLowerCase()}`}>
+            <button type="button" className="toast__body" onClick={() => (onOpen(symbol), onDismiss(id))}>
+              <SignalBadge signal={data} />
+              <span className="label mono">{symbol}</span>
+              <span className="caption fog mono">
+                entry {fmtNumber(data.entry, dp)} · stop {fmtNumber(data.stopLoss, dp)} · target {fmtNumber(data.takeProfit, dp)}
+              </span>
+            </button>
+            <button type="button" className="icon-btn" aria-label="Dismiss" onClick={() => onDismiss(id)}>
+              ×
+            </button>
+          </div>
+        )
+      })}
+    </div>
+  )
 }
 
 // Appends the live stream's state to a section subtitle when it isn't streaming.

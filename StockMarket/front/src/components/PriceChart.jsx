@@ -11,7 +11,8 @@ function niceStep(raw) {
   return (f < 1.5 ? 1 : f < 3 ? 2 : f < 7 ? 5 : 10) * p
 }
 
-export default function PriceChart({ candles, mode = 'line', range, dp, height = 360, showLegend = true }) {
+// `signal` (optional): an actionable AI signal { signal, entry, stopLoss, takeProfit } drawn as level lines.
+export default function PriceChart({ candles, mode = 'line', range, dp, height = 360, showLegend = true, signal = null }) {
   const wrapRef = useRef(null)
   const [width, setWidth] = useState(720)
   const [hover, setHover] = useState(null)
@@ -34,8 +35,10 @@ export default function PriceChart({ candles, mode = 'line', range, dp, height =
     const priceH = plotH - volH - (hasVolume ? 8 : 0)
     const lows = candles.map((c) => (mode === 'line' ? c.c : c.l))
     const highs = candles.map((c) => (mode === 'line' ? c.c : c.h))
-    let min = Math.min(...lows)
-    let max = Math.max(...highs)
+    // Signal levels widen the scale so entry, stop and target are always visible.
+    const levels = signal ? [signal.entry, signal.stopLoss, signal.takeProfit] : []
+    let min = Math.min(...lows, ...levels)
+    let max = Math.max(...highs, ...levels)
     const padding = (max - min) * 0.08 || max * 0.01
     min -= padding
     max += padding
@@ -56,7 +59,7 @@ export default function PriceChart({ candles, mode = 'line', range, dp, height =
     const area = `${line}L${x(n - 1).toFixed(1)},${PAD_T + priceH}L${x(0).toFixed(1)},${PAD_T + priceH}Z`
 
     return { n, plotW, priceH, volH, volTop, slot, x, y, maxVol, hasVolume, yTicks, tickDp, xTicks, line, area }
-  }, [candles, mode, width, height, dp])
+  }, [candles, mode, width, height, dp, signal])
 
   const onMove = (e) => {
     const rect = e.currentTarget.getBoundingClientRect()
@@ -144,6 +147,33 @@ export default function PriceChart({ candles, mode = 'line', range, dp, height =
               </g>
             )
           })
+        )}
+
+        {signal &&
+          [
+            ['Target', signal.takeProfit, 'tp'],
+            ['Entry', signal.entry, 'entry'],
+            ['Stop', signal.stopLoss, 'sl'],
+          ].map(([label, price, kind]) => (
+            <g key={kind} className={`chart-level chart-level--${kind}`} pointerEvents="none">
+              <line x1="0" x2={geo.plotW} y1={geo.y(price)} y2={geo.y(price)} />
+              <text x={geo.plotW - 6} y={geo.y(price) - 5} textAnchor="end" className="chart-level__label">
+                {label}
+              </text>
+              <g transform={`translate(${geo.plotW + 2}, ${geo.y(price) - 10})`}>
+                <rect width={PAD_R - 4} height="20" rx="4" />
+                <text x="6" y="14" className="chart-chip-text">{fmtNumber(price, dp)}</text>
+              </g>
+            </g>
+          ))}
+        {signal && (
+          // ▲ under the entry for BUY, ▼ above it for SELL, at the latest candle.
+          <path
+            className={`chart-marker chart-marker--${signal.signal.toLowerCase()}`}
+            transform={`translate(${geo.x(geo.n - 1)}, ${geo.y(signal.entry) + (signal.signal === 'BUY' ? 14 : -14)})`}
+            d={signal.signal === 'BUY' ? 'M0,-7L7,6L-7,6Z' : 'M0,7L7,-6L-7,-6Z'}
+            pointerEvents="none"
+          />
         )}
 
         <line x1="0" x2={geo.plotW} y1={geo.y(last.c)} y2={geo.y(last.c)} className="chart-last-line" />

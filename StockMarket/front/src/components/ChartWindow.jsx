@@ -1,15 +1,75 @@
 import { useEffect, useRef, useState } from 'react'
 import { RANGES, TYPES } from '../data/markets'
+import { activeSignal } from '../hooks/useAnalysis'
 import { useCandles, withLivePrice } from '../hooks/useMarket'
 import { fmtCompact, fmtNumber, fmtPrice } from '../lib/format'
-import { Avatar, Delta, LivePrice } from './Bits'
+import { Avatar, Delta, LivePrice, SignalBadge } from './Bits'
 import { CloseIcon, StarIcon } from './Icons'
 import { ChartPlaceholder } from './Market'
 import PriceChart from './PriceChart'
 
 const CHART_HEIGHT = 380
 
-export default function ChartWindow({ asset, quote, watched, onToggleWatch, onClose }) {
+// AI result under the chart: the trade levels when actionable, otherwise why to stand aside.
+function AnalysisPanel({ asset, result }) {
+  if (!result) return null
+  const { data, loading, error } = result
+  if (!data) {
+    if (loading) return <p className="analysis caption fog">Analyzing {asset.symbol} across 4 timeframes…</p>
+    return error ? <p className="analysis analysis--error caption">{error}</p> : null
+  }
+
+  const time = new Date(data.generatedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+  const dash = (v) => (v == null ? '—' : fmtNumber(v, asset.dp))
+  const rejected = !data.actionable && data.modelSignal !== 'HOLD'
+
+  return (
+    <section className={`analysis${data.actionable ? ` analysis--${data.signal.toLowerCase()}` : ''}`} aria-live="polite">
+      <header className="analysis__head">
+        {data.actionable ? <SignalBadge signal={data} /> : <span className="signal-badge">NO TRADE</span>}
+        <span className="label">{data.actionable ? `${data.signal} setup on ${data.timeframe}` : 'Stand aside'}</span>
+        <span className="caption fog">
+          {data.model} · {time}
+          {loading && ' · refreshing…'}
+        </span>
+      </header>
+      {data.actionable ? (
+        <dl className="analysis__levels">
+          {[
+            ['Entry', dash(data.entry)],
+            ['Stop-loss', dash(data.stopLoss)],
+            ['Take-profit', dash(data.takeProfit)],
+            ['Risk / reward', data.riskReward?.toFixed(2) ?? '—'],
+            ['Setup score', `${data.setupScore}/100`],
+          ].map(([k, v]) => (
+            <div key={k}>
+              <dt className="caption fog">{k}</dt>
+              <dd className="mono">{v}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : (
+        <>
+          {rejected && (
+            <p className="caption">
+              The model suggested {data.modelSignal} ({data.confidence}%), but it didn’t pass every safety check:
+            </p>
+          )}
+          <ul className="analysis__reasons caption">
+            {data.standAsideReasons.map((r) => (
+              <li key={r}>{r}</li>
+            ))}
+          </ul>
+        </>
+      )}
+      {data.reasoning && <p className="caption">{data.reasoning}</p>}
+      {error && <p className="caption analysis--error">Refresh failed: {error}</p>}
+      <p className="caption fog">{data.disclaimer}</p>
+    </section>
+  )
+}
+
+export default function ChartWindow({ asset, quote, watched, onToggleWatch, onClose, analysis, onAnalyze }) {
   const dialogRef = useRef(null)
   const [range, setRange] = useState('1D')
   const [mode, setMode] = useState('line')
@@ -23,6 +83,8 @@ export default function ChartWindow({ asset, quote, watched, onToggleWatch, onCl
   const { candles, loading, error } = useCandles(asset, range)
   const year = useCandles(asset, '1Y').candles
   const chartCandles = withLivePrice(candles, quote.price)
+  const signal = activeSignal(analysis)
+  const analyzing = Boolean(analysis?.loading)
 
   const diff = quote.price - quote.prevClose
   const yearHigh = year?.length ? Math.max(quote.high, ...year.map((c) => c.h)) : null
@@ -107,15 +169,20 @@ export default function ChartWindow({ asset, quote, watched, onToggleWatch, onCl
               </button>
             ))}
           </div>
+          <button type="button" className="btn-outline btn-outline--sm" onClick={() => onAnalyze(asset)} disabled={analyzing}>
+            {analyzing ? 'Analyzing…' : analysis?.data ? 'Re-analyze' : 'AI analyze'}
+          </button>
         </div>
 
         {chartCandles?.length ? (
-          <PriceChart candles={chartCandles} mode={mode} range={range} dp={asset.dp} height={CHART_HEIGHT} />
+          <PriceChart candles={chartCandles} mode={mode} range={range} dp={asset.dp} height={CHART_HEIGHT} signal={signal} />
         ) : (
           <ChartPlaceholder height={CHART_HEIGHT + 26}>
             {error || (loading ? 'Loading chart…' : 'No trades in this range')}
           </ChartPlaceholder>
         )}
+
+        <AnalysisPanel asset={asset} result={analysis} />
 
         <dl className="stats">
           {stats.map(([label, value]) => (
