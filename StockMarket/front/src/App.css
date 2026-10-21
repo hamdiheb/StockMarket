@@ -680,8 +680,14 @@
   stroke: var(--color-paper-white);
 }
 .chart-level--tp line,
-.chart-level--tp rect {
+.chart-level--tp rect,
+.chart-level--tp1 line,
+.chart-level--tp1 rect {
   stroke: var(--color-ice-signal);
+}
+.chart-level--tp1 line {
+  stroke-dasharray: 2 4;
+  opacity: 0.7;
 }
 .chart-level--sl line,
 .chart-level--sl rect {

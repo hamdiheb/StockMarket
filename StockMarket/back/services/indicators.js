@@ -135,6 +135,7 @@ export function summarize(bars) {
 
   return {
     bars: bars.length,
+    lastBarAt: bars[bars.length - 1].t,
     price,
     changePct: price / bars[0].o - 1,
     ema20: last(e20),

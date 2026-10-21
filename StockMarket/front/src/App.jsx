@@ -6,7 +6,7 @@ import { FilterBar, Footer, IconRail, Sidebar, TopBar } from './components/Layou
 import { FeaturedCard, MarketSection } from './components/Market'
 import { activeSignal, useAnalysis } from './hooks/useAnalysis'
 import { useMarket, useWatchlist } from './hooks/useMarket'
-import { fmtNumber } from './lib/format'
+import { fmtDistance, fmtNumber } from './lib/format'
 import './App.css'
 
 const SECTIONS = [
@@ -45,7 +45,8 @@ function Toasts({ toasts, bySymbol, onOpen, onDismiss }) {
   return (
     <div className="toasts" role="status" aria-live="polite">
       {toasts.map(({ id, symbol, data }) => {
-        const dp = bySymbol[symbol]?.dp ?? 2
+        const asset = bySymbol[symbol]
+        const dp = asset?.dp ?? 2
         return (
           <div key={id} className={`toast toast--${data.signal.toLowerCase()}`}>
             <button type="button" className="toast__body" onClick={() => {
@@ -56,7 +57,11 @@ function Toasts({ toasts, bySymbol, onOpen, onDismiss }) {
               <SignalBadge signal={data} />
               <span className="label mono">{symbol}</span>
               <span className="caption fog mono">
-                entry {fmtNumber(data.entry, dp)} · stop {fmtNumber(data.stopLoss, dp)} · target {fmtNumber(data.takeProfit, dp)}
+                entry {fmtNumber(data.entry, dp)} · stop {fmtNumber(data.stopLoss, dp)}
+                {asset && ` (−${fmtDistance(data.distances?.stop, data.distances, asset)})`}
+                <br />
+                T1 {fmtNumber(data.takeProfit1, dp)} · T2 {fmtNumber(data.takeProfit, dp)}
+                {asset && ` (+${fmtDistance(data.distances?.target2, data.distances, asset)})`}
               </span>
             </button>
             <button type="button" className="icon-btn" aria-label="Dismiss" onClick={() => onDismiss(id)}>
@@ -79,11 +84,11 @@ function streamNote(stream) {
 export default function App() {
   const { assets, bySymbol, quotes, sources, streams } = useMarket()
   const [watchlist, toggleWatch] = useWatchlist()
-  const ai = useAnalysis(bySymbol, watchlist)
-  const signals = Object.fromEntries(Object.keys(ai.results).map((s) => [s, activeSignal(ai.results[s])]))
   const [filter, setFilter] = useState('all')
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(null)
+  const ai = useAnalysis(bySymbol, watchlist, open)
+  const signals = Object.fromEntries(Object.keys(ai.results).map((s) => [s, activeSignal(ai.results[s])]))
 
   const q = query.trim().toLowerCase()
   const inFilter = (a, id) => id === 'all' || id === a.type || (id === 'watch' && watchlist.includes(a.symbol))

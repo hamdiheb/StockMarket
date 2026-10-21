@@ -2,7 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { fetchAnalysis } from '../lib/api'
 import { playSignal, unlockAudio } from '../lib/sound'
 
-const AUTO_INTERVAL_MS = 15 * 60e3
+// The server pre-screens without the model and only asks it once per 5-minute bar, so a 1-minute
+// check is cheap. (Forex data itself only refreshes every 15 minutes on Twelve Data's free plan.)
+const AUTO_INTERVAL_MS = 60e3
 const SIGNAL_TTL_MS = 60 * 60e3 // badges disappear once a signal is this old
 const TOAST_MS = 20e3
 const AUTO_KEY = 'stockmarket.autowatch'
@@ -24,11 +26,22 @@ function save(key, value) {
   }
 }
 
+// " (−25.0 pips)" / " (+1.20%)" for the plain-text notification.
+function distanceText(data, key, sign) {
+  const d = data.distances?.[key]
+  if (!d) return ''
+  return data.distances.unit === 'pips' ? ` (${sign}${d.value.toFixed(1)} pips)` : ` (${sign}${d.pct.toFixed(2)}%)`
+}
+
 function browserNotify(data) {
   if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return
   try {
     const n = new Notification(`${data.signal} ${data.symbol}`, {
-      body: `Entry ${data.entry} · stop ${data.stopLoss} · target ${data.takeProfit} (${data.confidence}% confidence)`,
+      body: [
+        `Entry ${data.entry} · stop ${data.stopLoss}${distanceText(data, 'stop', '−')}`,
+        `Target 1 ${data.takeProfit1}${distanceText(data, 'target1', '+')} · target 2 ${data.takeProfit}${distanceText(data, 'target2', '+')}`,
+        `${data.confidence}% confidence · R:R 1:${data.riskReward}`,
+      ].join('\n'),
       tag: `signal-${data.symbol}`,
     })
     n.onclick = () => window.focus()
@@ -44,10 +57,10 @@ export function activeSignal(result) {
   return Date.now() - Date.parse(data.generatedAt) < SIGNAL_TTL_MS ? data : null
 }
 
-// AI signals per symbol. analyze() runs on demand; auto-watch re-checks the watchlist every 15 minutes.
-// Sound, toast and browser notification fire only for an actionable signal that differs from the
-// symbol's previous signal — "stand aside" results never notify.
-export function useAnalysis(bySymbol, watchlist) {
+// AI signals per symbol. analyze() runs on demand; auto-watch re-checks the watchlist, plus the chart
+// that's open, every minute. Sound, toast and browser notification fire only for an actionable signal
+// that differs from the symbol's previous signal — "stand aside" results never notify.
+export function useAnalysis(bySymbol, watchlist, openSymbol = null) {
   const [results, setResults] = useState({}) // symbol -> { data, loading, error }
   const [toasts, setToasts] = useState([])
   const [autoWatch, setAutoWatchState] = useState(() => load(AUTO_KEY, false))
@@ -58,7 +71,7 @@ export function useAnalysis(bySymbol, watchlist) {
   const watchRef = useRef(watchlist)
   useEffect(() => {
     assetsRef.current = bySymbol
-    watchRef.current = watchlist
+    watchRef.current = openSymbol && !watchlist.includes(openSymbol) ? [...watchlist, openSymbol] : watchlist
   })
 
   const dismissToast = useCallback((id) => setToasts((prev) => prev.filter((t) => t.id !== id)), [])

@@ -151,10 +151,13 @@ export default function PriceChart({ candles, mode = 'line', range, dp, height =
 
         {signal &&
           [
-            ['Target', signal.takeProfit, 'tp'],
+            ['Target 2', signal.takeProfit, 'tp'],
+            ['Target 1', signal.takeProfit1, 'tp1'],
             ['Entry', signal.entry, 'entry'],
             ['Stop', signal.stopLoss, 'sl'],
-          ].map(([label, price, kind]) => (
+          ]
+            .filter(([, price]) => price != null)
+            .map(([label, price, kind]) => (
             <g key={kind} className={`chart-level chart-level--${kind}`} pointerEvents="none">
               <line x1="0" x2={geo.plotW} y1={geo.y(price)} y2={geo.y(price)} />
               <text x={geo.plotW - 6} y={geo.y(price) - 5} textAnchor="end" className="chart-level__label">

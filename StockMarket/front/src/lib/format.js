@@ -18,6 +18,13 @@ export function fmtCompact(value) {
   return compact.format(value)
 }
 
+// A trade-plan distance from the API: "25.0 pips" for forex, "$4.20 (1.22%)" for stocks and crypto.
+export function fmtDistance(d, distances, asset) {
+  if (!d || !distances) return ''
+  if (distances.unit === 'pips') return `${d.value.toFixed(1)} pips`
+  return `${fmtPrice(d.value, asset)} (${d.pct.toFixed(2)}%)`
+}
+
 // Change vs the previous close (the day's open when there is none).
 export function changeOf(quote) {
   return quote.price / (quote.prevClose || quote.open) - 1

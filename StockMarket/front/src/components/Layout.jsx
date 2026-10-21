@@ -183,7 +183,7 @@ export function Sidebar({ quotes, bySymbol, watchlist, signals = {}, autoWatch, 
         <label className="auto-watch caption">
           <input type="checkbox" checked={autoWatch} onChange={(e) => onAutoWatch(e.target.checked)} />
           <span>
-            AI auto-watch <span className="fog">· re-checks every 15 min, alerts only on new ≥80% BUY/SELL signals</span>
+            AI auto-watch <span className="fog">· checks your watchlist and the open chart every minute, alerts only on new ≥80% BUY/SELL signals</span>
           </span>
         </label>
       )}

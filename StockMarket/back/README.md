@@ -34,7 +34,7 @@ database/       reserved for persistence (not used yet)
 | GET | `/api/livedata/forex/:pair/bars?range=1D` | Forex candles (`:pair` as `EURUSD` or `EUR-USD`), `v` is always 0 |
 | GET | `/api/livedata/crypto?symbols=BTC/USD,ETH/USD` | Alpaca crypto snapshot, same shape as stocks (`volume` in coins, day = UTC day). Without `symbols` it returns 9 default pairs. Cached 5s. |
 | GET | `/api/livedata/crypto/:pair/bars?range=1D` | Crypto candles (`:pair` as `BTC-USD`); `1D` is the last 24 hours |
-| GET | `/api/analysis/:type/:symbol` | AI trade signal (`type` = `stock` \| `forex` \| `crypto`, pairs as `EUR-USD` / `BTC-USD`). Cached 5 min. See below. |
+| GET | `/api/analysis/:type/:symbol` | AI trade signal (`type` = `stock` \| `forex` \| `crypto`, pairs as `EUR-USD` / `BTC-USD`). Cached 1 min; the model is asked at most once per 5-minute bar, and only when a pre-check finds a setup could pass. See below. |
 
 ## AI trade signals
 

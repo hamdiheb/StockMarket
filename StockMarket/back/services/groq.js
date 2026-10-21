@@ -5,7 +5,8 @@ import { HttpError } from '../middlewares/errorHandler.js'
 const URL = 'https://api.groq.com/openai/v1/chat/completions'
 const TIMEOUT_MS = 60e3
 
-export const groqModel = () => process.env.GROQ_MODEL || 'llama-3.3-70b-versatile'
+// Groq retires models regularly: list current ones with GET https://api.groq.com/openai/v1/models
+export const groqModel = () => process.env.GROQ_MODEL || 'openai/gpt-oss-120b'
 
 export async function chatJSON({ system, user, schema }) {
   const key = process.env.GROQ_API_KEY

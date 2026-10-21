@@ -8,11 +8,45 @@ import { summarize } from './indicators.js'
 import { chatSignal, provider } from './llm.js'
 import { getForexBars, getForexSnapshots } from './twelveData.js'
 
-const ANALYSIS_CACHE_MS = 5 * 60e3
+const ANALYSIS_CACHE_MS = 60e3 // full result: re-checked against fresh prices every minute
+const LLM_CACHE_MS = 10 * 60e3 // model answer: reused until a new 5-minute bar closes (keyed by bar)
 const MIN_SETUP_SCORE = 80
 const MAX_EMA20_CROSSES = 6 // in the last 20 bars: more than this is chop
 const VOLATILITY_SPIKE = 1.5 // ATR% vs its recent average
 const MIN_RR = 2
+const STOP_ATR = { min: 0.75, max: 3 } // stop distance in ATRs of the trade's timeframe (model is told 1–3)
+
+// Forex distances are quoted in pips (0.0001, or 0.01 for JPY pairs); stocks and crypto in price points.
+function distanceUnit(type, symbol) {
+  if (type === 'forex') return { unit: 'pips', size: symbol.endsWith('/JPY') ? 0.01 : 0.0001 }
+  return { unit: 'points', size: 1 }
+}
+
+// Distance from the entry to a level, in pips/points and as a percent of the entry.
+function distance(entry, level, { size }) {
+  const d = Math.abs(level - entry)
+  return { value: Number((d / size).toFixed(size === 1 ? 4 : 1)), pct: Number(((d / entry) * 100).toFixed(2)) }
+}
+
+// Turns validated entry/stop/target into the plan shown to the user: distances for each level and a first
+// partial target at 1:1 (take part of the position there and move the stop to the entry).
+export function tradePlan(type, symbol, signal, entry, stopLoss, takeProfit) {
+  const dir = signal === 'BUY' ? 1 : -1
+  const risk = Math.abs(entry - stopLoss)
+  const unit = distanceUnit(type, symbol)
+  const takeProfit1 = entry + dir * risk
+  return {
+    takeProfit1,
+    distances: {
+      unit: unit.unit,
+      pipSize: type === 'forex' ? unit.size : null,
+      stop: distance(entry, stopLoss, unit),
+      target1: distance(entry, takeProfit1, unit),
+      target2: distance(entry, takeProfit, unit),
+    },
+    management: 'Take part of the profit at target 1 and move the stop to the entry, so the rest runs risk-free to target 2.',
+  }
+}
 export const minConfidence = () => Number(process.env.MIN_CONFIDENCE) || 80
 
 export const TIMEFRAMES = {
@@ -95,8 +129,13 @@ Use ONLY the numbers given. Decide BUY, SELL or HOLD.
 - If timeframes conflict, momentum looks exhausted, or price is choppy (many EMA20 crosses), answer HOLD. HOLD is the default.
 - timeframe: the timeframe your trade is based on.
 - entry: near the current price, or the nearest support (BUY) / resistance (SELL).
-- stopLoss: beyond the nearest support (BUY) / resistance (SELL), at least 1 ATR of that timeframe from the entry.
-- takeProfit: at the next resistance (BUY) / support (SELL), at least 2x the stop distance from the entry.
+- stopLoss: just beyond the nearest support (BUY: below it) / resistance (SELL: above it), so normal noise doesn't hit it.
+  Its distance from the entry MUST be between 1 and 3 ATR of the chosen timeframe. If the nearest level is further
+  than 3 ATR away, the trade is too risky: answer HOLD.
+- takeProfit: just before the next resistance (BUY) / support (SELL), never beyond it. Its distance from the entry
+  MUST be between 2x and 4x the stop distance. If the next level is closer than 2x the stop distance, there is not
+  enough room for profit: answer HOLD.
+- Give prices only; the server converts them to pips/points and adds a first partial target.
 - confidence: 0-100, how strongly ALL the evidence agrees. Only go above 80 when every timeframe agrees.
 - For HOLD set entry, stopLoss and takeProfit to 0.
 - reasoning: at most 3 short sentences that cite the numbers.`
@@ -128,13 +167,10 @@ function userPrompt(ctx) {
 
 const opposite = { up: 'down', down: 'up' }
 
-// Pure: turns the model's answer into the final result. Exported for testing.
-export function evaluate(ctx, out) {
+// Market stability and freshness: these block any trade, whatever the model says.
+function marketReasons(ctx) {
+  const day = ctx.timeframes['1D']
   const reasons = []
-  const tfs = ctx.timeframes
-  const day = tfs['1D']
-
-  // Market stability (reported even for HOLD, so the user sees why nothing is happening).
   if (day.atrPct != null && day.atrPctAvg && day.atrPct > VOLATILITY_SPIKE * day.atrPctAvg) {
     reasons.push(`Volatility spike: intraday ATR is ${(day.atrPct / day.atrPctAvg).toFixed(1)}× its recent average`)
   }
@@ -142,6 +178,34 @@ export function evaluate(ctx, out) {
     reasons.push(`Choppy market: price crossed its 20-bar average ${day.ema20Crosses} times in the last 20 bars`)
   }
   if (ctx.staleReason) reasons.push(ctx.staleReason)
+  return reasons
+}
+
+// Cheap check before calling the model: could a BUY or SELL pass the gate at all, even with the
+// best possible momentum, risk/reward and volume? Uses the same rules as evaluate(), so it never
+// skips a setup that would have passed. Returns the reasons to stand aside, or [] to ask the model.
+export function prescreen(ctx) {
+  const blockers = marketReasons(ctx)
+  if (blockers.length) return blockers
+  const tfs = ctx.timeframes
+  const list = Object.values(tfs)
+  const hasVolume = list.some((tf) => tf.volumeRatio != null)
+  const possible = ['up', 'down'].some((trend) => {
+    if (['1D', '1W'].some((k) => tfs[k]?.trend === opposite[trend])) return false
+    const dir = trend === 'up' ? 1 : -1
+    const agree = list.filter((tf) => tf.trend === trend && Math.sign(tf.macd.hist ?? 0) === dir).length
+    const best = Math.round((40 * agree) / list.length) + 40 + (hasVolume ? 20 : 0)
+    return (hasVolume ? best : (best / 80) * 100) >= MIN_SETUP_SCORE
+  })
+  return possible ? [] : ['No setup forming: the timeframes don’t line up in either direction']
+}
+
+// Pure: turns the model's answer into the final result. Exported for testing.
+export function evaluate(ctx, out) {
+  const tfs = ctx.timeframes
+  const day = tfs['1D']
+  // Reported even for HOLD, so the user sees why nothing is happening.
+  const reasons = marketReasons(ctx)
 
   const base = {
     modelSignal: out.signal,
@@ -168,6 +232,13 @@ export function evaluate(ctx, out) {
   if (!ordered) reasons.push('The suggested stop-loss / take-profit are on the wrong side of the entry')
   else if (trig.atr && Math.abs(entry - ctx.price) > 2 * trig.atr) reasons.push('The suggested entry is too far from the current price')
   const riskReward = ordered ? Math.abs(takeProfit - entry) / Math.abs(entry - stopLoss) : null
+  // Stop must sit outside normal noise but not so far that one loss wipes out several wins.
+  if (ordered && trig.atr) {
+    const stopAtr = Math.abs(entry - stopLoss) / trig.atr
+    if (stopAtr < STOP_ATR.min) reasons.push(`Stop-loss too tight: ${stopAtr.toFixed(1)} ATR from the entry, normal noise would hit it`)
+    else if (stopAtr > STOP_ATR.max) reasons.push(`Stop-loss too wide: ${stopAtr.toFixed(1)} ATR from the entry`)
+  }
+  if (riskReward != null && riskReward > 5) reasons.push(`Take-profit is unrealistic: ${riskReward.toFixed(1)}× the risk`)
 
   if (out.confidence < minConfidence()) reasons.push(`Model confidence ${out.confidence}% is below ${minConfidence()}%`)
 
@@ -209,6 +280,7 @@ export function evaluate(ctx, out) {
     entry: actionable ? entry : null,
     stopLoss: actionable ? stopLoss : null,
     takeProfit: actionable ? takeProfit : null,
+    ...(actionable ? tradePlan(ctx.type, ctx.symbol, out.signal, entry, stopLoss, takeProfit) : { takeProfit1: null, distances: null, management: null }),
     riskReward: riskReward == null ? null : Number(riskReward.toFixed(2)),
     setupScore,
     scoreBreakdown: breakdown,
@@ -220,13 +292,42 @@ export function analyze(type, symbol) {
   return cached(`analysis:${type}:${symbol}`, ANALYSIS_CACHE_MS, async () => {
     const started = Date.now()
     const ctx = await buildContext(type, symbol)
-    const out = await chatSignal({ system: SYSTEM_PROMPT, user: userPrompt(ctx), schema: SCHEMA })
     const day = ctx.timeframes['1D']
+
+    // Nothing could pass the gate: answer without spending a model call.
+    const skip = prescreen(ctx)
+    let result
+    if (skip.length) {
+      result = {
+        modelSignal: 'HOLD',
+        confidence: null,
+        timeframe: null,
+        reasoning: '',
+        signal: 'HOLD',
+        actionable: false,
+        entry: null,
+        stopLoss: null,
+        takeProfit: null,
+        riskReward: null,
+        setupScore: null,
+        scoreBreakdown: null,
+        standAsideReasons: skip,
+        screenedOnly: true,
+      }
+    } else {
+      // The indicators only change when a new 5-minute bar closes, so ask the model once per bar;
+      // evaluate() still re-checks that answer against the live price on every call.
+      const out = await cached(`llm:${type}:${symbol}:${day.lastBarAt}`, LLM_CACHE_MS, () =>
+        chatSignal({ system: SYSTEM_PROMPT, user: userPrompt(ctx), schema: SCHEMA }),
+      )
+      result = { ...evaluate(ctx, out), screenedOnly: false }
+    }
+
     return {
       symbol,
       type,
       price: ctx.price,
-      ...evaluate(ctx, out),
+      ...result,
       levels: { supports: day.supports.map((l) => l.price), resistances: day.resistances.map((l) => l.price) },
       provider: provider().name,
       model: provider().model(),

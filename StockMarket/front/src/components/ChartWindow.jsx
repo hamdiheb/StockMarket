@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { RANGES, TYPES } from '../data/markets'
 import { activeSignal } from '../hooks/useAnalysis'
 import { useCandles, withLivePrice } from '../hooks/useMarket'
-import { fmtCompact, fmtNumber, fmtPrice } from '../lib/format'
+import { fmtCompact, fmtDistance, fmtNumber, fmtPrice } from '../lib/format'
 import { Avatar, Delta, LivePrice, SignalBadge } from './Bits'
 import { CloseIcon, StarIcon } from './Icons'
 import { ChartPlaceholder } from './Market'
@@ -29,25 +29,29 @@ function AnalysisPanel({ asset, result }) {
         {data.actionable ? <SignalBadge signal={data} /> : <span className="signal-badge">NO TRADE</span>}
         <span className="label">{data.actionable ? `${data.signal} setup on ${data.timeframe}` : 'Stand aside'}</span>
         <span className="caption fog">
-          {data.model} · {time}
+          {data.screenedOnly ? 'quick check, no AI call needed' : data.model} · {time}
           {loading && ' · refreshing…'}
         </span>
       </header>
       {data.actionable ? (
-        <dl className="analysis__levels">
-          {[
-            ['Entry', dash(data.entry)],
-            ['Stop-loss', dash(data.stopLoss)],
-            ['Take-profit', dash(data.takeProfit)],
-            ['Risk / reward', data.riskReward?.toFixed(2) ?? '—'],
-            ['Setup score', `${data.setupScore}/100`],
-          ].map(([k, v]) => (
-            <div key={k}>
-              <dt className="caption fog">{k}</dt>
-              <dd className="mono">{v}</dd>
-            </div>
-          ))}
-        </dl>
+        <>
+          <dl className="analysis__levels">
+            {[
+              ['Entry', dash(data.entry), data.signal === 'BUY' ? 'buy at' : 'sell at'],
+              ['Stop-loss', dash(data.stopLoss), `− ${fmtDistance(data.distances?.stop, data.distances, asset)}`],
+              ['Target 1', dash(data.takeProfit1), `+ ${fmtDistance(data.distances?.target1, data.distances, asset)}`],
+              ['Target 2', dash(data.takeProfit), `+ ${fmtDistance(data.distances?.target2, data.distances, asset)}`],
+              ['Risk / reward', `1 : ${data.riskReward?.toFixed(2) ?? '—'}`, `score ${data.setupScore}/100`],
+            ].map(([k, v, sub]) => (
+              <div key={k}>
+                <dt className="caption fog">{k}</dt>
+                <dd className="mono">{v}</dd>
+                <dd className="caption fog mono">{sub}</dd>
+              </div>
+            ))}
+          </dl>
+          {data.management && <p className="caption">{data.management}</p>}
+        </>
       ) : (
         <>
           {rejected && (
