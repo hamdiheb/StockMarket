@@ -10,6 +10,9 @@ export const RANGES = {
   '1M': { timeframe: '4Hour', lookbackDays: 31, cacheMs: 5 * 60e3 },
   '1Y': { timeframe: '1Day', lookbackDays: 366, cacheMs: 30 * 60e3 },
   '5Y': { timeframe: '1Week', lookbackDays: 5 * 366, cacheMs: 60 * 60e3 },
+  // Several sessions of 5-minute bars, for the AI analysis: 1D alone can be only a handful of bars
+  // early in the trading day, too few for the indicators. Not offered on the chart.
+  INTRADAY: { timeframe: '5Min', lookbackDays: 7, cacheMs: 60e3 },
 }
 
 // Crypto trades around the clock, so 1D is simply the last 24 hours.

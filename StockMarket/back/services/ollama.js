@@ -2,7 +2,7 @@
 // Replies are constrained to a JSON schema (structured outputs).
 import { HttpError } from '../middlewares/errorHandler.js'
 
-const TIMEOUT_MS = 180e3
+const TIMEOUT_MS = 300e3 // CPU-only machines need ~2–3 min per analysis
 
 export const ollamaUrl = () => (process.env.OLLAMA_URL || 'http://localhost:11434').replace(/\/+$/, '')
 export const ollamaModel = () => process.env.OLLAMA_MODEL || 'llama3'

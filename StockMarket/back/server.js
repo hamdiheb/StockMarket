@@ -6,7 +6,7 @@ import { errorHandler, notFound } from './middlewares/errorHandler.js'
 import { requestLogger } from './middlewares/requestLogger.js'
 import analysisRoutes from './routes/analysis.js'
 import liveDataRoutes from './routes/liveData.js'
-import { checkOllama, ollamaUrl } from './services/ollama.js'
+import { provider } from './services/llm.js'
 
 const app = express()
 const PORT = Number(process.env.PORT) || 4000
@@ -38,9 +38,11 @@ const server = app.listen(PORT, () => {
     const unset = keys.filter((k) => !process.env[k])
     if (unset.length) console.warn(`${feature}: ${unset.join(', ')} not set — this data will be unavailable`)
   }
-  checkOllama().catch((err) =>
-    console.warn(`AI analysis (Ollama at ${ollamaUrl()}): ${err.message.startsWith('model') ? err.message : 'not reachable'} — signals will be unavailable`),
-  )
+  const llm = provider()
+  llm
+    .check()
+    .then(() => console.log(`AI analysis: ${llm.name} (${llm.model()})`))
+    .catch((err) => console.warn(`AI analysis (${llm.name} at ${llm.where()}): ${err.message} — signals will be unavailable`))
 })
 attachLiveStream(server, origins)
 for (const up of UPSTREAMS) {
