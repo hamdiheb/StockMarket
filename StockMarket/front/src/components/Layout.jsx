@@ -142,14 +142,27 @@ const SIDE_TABS = [
   ['watch', 'Watchlist'],
 ]
 
+const EMPTY_TEXT = {
+  gainers: 'Nothing is up right now.',
+  losers: 'Nothing is down right now.',
+  watch: 'Star an instrument from its chart window to track it here.',
+}
+
+// Gainers: everything loaded (stocks, currencies, crypto) that's up, biggest gain first.
+// Losers: everything that's down, biggest drop first.
 export function Sidebar({ quotes, bySymbol, watchlist, onOpen }) {
   const [tab, setTab] = useState('gainers')
-  const symbols = Object.keys(quotes).filter((s) => bySymbol[s])
   let rows
   if (tab === 'watch') rows = watchlist.filter((s) => quotes[s] && bySymbol[s])
   else {
-    const sign = tab === 'gainers' ? -1 : 1
-    rows = symbols.sort((a, b) => sign * (changeOf(quotes[a]) - changeOf(quotes[b]))).slice(0, 10)
+    const sign = tab === 'gainers' ? 1 : -1
+    rows = Object.keys(quotes)
+      .filter((s) => bySymbol[s])
+      .map((s) => [s, sign * changeOf(quotes[s])])
+      .filter(([, change]) => change > 0)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([s]) => s)
   }
 
   return (
@@ -175,7 +188,7 @@ export function Sidebar({ quotes, bySymbol, watchlist, onOpen }) {
           ))}
         </ul>
       ) : (
-        <p className="empty caption fog">Star an instrument from its chart window to track it here.</p>
+        <p className="empty caption fog">{EMPTY_TEXT[tab]}</p>
       )}
     </aside>
   )
