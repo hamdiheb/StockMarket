@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { changeOf, fmtNumber } from '../lib/format'
-import { Avatar, Delta, LivePrice } from './Bits'
+import { Avatar, Delta, LivePrice, SignalBadge } from './Bits'
 import { FILTERS } from './filters'
 import { SearchIcon, SettingsIcon } from './Icons'
 
@@ -118,14 +118,16 @@ export function FilterBar({ filter, onFilter, counts }) {
   )
 }
 
-function SidebarRow({ asset, quote, onOpen }) {
+function SidebarRow({ asset, quote, signal, onOpen }) {
   return (
     <li>
       <button type="button" className="side-row" onClick={() => onOpen(asset.symbol)}>
         <Avatar asset={asset} size={28} square />
         <span className="side-row__name">
           <span className="truncate">{asset.name}</span>
-          <span className="caption fog mono">{asset.symbol}</span>
+          <span className="caption fog mono">
+            {asset.symbol} <SignalBadge signal={signal} />
+          </span>
         </span>
         <span className="side-row__price">
           <LivePrice asset={asset} quote={quote} />
@@ -150,7 +152,7 @@ const EMPTY_TEXT = {
 
 // Gainers: everything loaded (stocks, currencies, crypto) that's up, biggest gain first.
 // Losers: everything that's down, biggest drop first.
-export function Sidebar({ quotes, bySymbol, watchlist, onOpen }) {
+export function Sidebar({ quotes, bySymbol, watchlist, signals = {}, autoWatch, onAutoWatch, onOpen }) {
   const [tab, setTab] = useState('gainers')
   let rows
   if (tab === 'watch') rows = watchlist.filter((s) => quotes[s] && bySymbol[s])
@@ -177,6 +179,14 @@ export function Sidebar({ quotes, bySymbol, watchlist, onOpen }) {
           ))}
         </div>
       </div>
+      {tab === 'watch' && (
+        <label className="auto-watch caption">
+          <input type="checkbox" checked={autoWatch} onChange={(e) => onAutoWatch(e.target.checked)} />
+          <span>
+            AI auto-watch <span className="fog">· re-checks every 15 min, alerts only on new ≥80% BUY/SELL signals</span>
+          </span>
+        </label>
+      )}
       <div className="side-cols caption fog">
         <span>Instrument</span>
         <span>Price / Chg</span>
@@ -184,7 +194,7 @@ export function Sidebar({ quotes, bySymbol, watchlist, onOpen }) {
       {rows.length ? (
         <ul className="side-list">
           {rows.map((s) => (
-            <SidebarRow key={s} asset={bySymbol[s]} quote={quotes[s]} onOpen={onOpen} />
+            <SidebarRow key={s} asset={bySymbol[s]} quote={quotes[s]} signal={signals[s]} onOpen={onOpen} />
           ))}
         </ul>
       ) : (

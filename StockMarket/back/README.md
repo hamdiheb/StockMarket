@@ -34,6 +34,25 @@ database/       reserved for persistence (not used yet)
 | GET | `/api/livedata/forex/:pair/bars?range=1D` | Forex candles (`:pair` as `EURUSD` or `EUR-USD`), `v` is always 0 |
 | GET | `/api/livedata/crypto?symbols=BTC/USD,ETH/USD` | Alpaca crypto snapshot, same shape as stocks (`volume` in coins, day = UTC day). Without `symbols` it returns 9 default pairs. Cached 5s. |
 | GET | `/api/livedata/crypto/:pair/bars?range=1D` | Crypto candles (`:pair` as `BTC-USD`); `1D` is the last 24 hours |
+| GET | `/api/analysis/:type/:symbol` | AI trade signal (`type` = `stock` \| `forex` \| `crypto`, pairs as `EUR-USD` / `BTC-USD`). Cached 5 min. See below. |
+
+## AI trade signals
+
+`services/analysis.js` computes indicators (EMA 20/50/200, RSI, MACD, ATR, Bollinger, volume, support/resistance)
+on four timeframes (1D 5-min, 1W 1-hour, 1M 4-hour, 1Y daily) and sends that summary — not raw candles — to an LLM:
+Groq when `GROQ_API_KEY` is set, otherwise local Ollama. No RAG: the input is small, structured and fresh.
+
+The model's answer is never trusted as-is. A BUY/SELL is `actionable` only if **every** check passes; otherwise the
+response is `HOLD` with `standAsideReasons`:
+
+- stop-loss / take-profit on the correct side of the entry, entry within 2 ATR of the current price
+- model confidence ≥ `MIN_CONFIDENCE` (default 80)
+- server-side setup score ≥ 80 (trend agreement across timeframes 40, RSI not exhausted 20, risk/reward ≥ 2 20, volume 20)
+- RSI not overbought (BUY) / oversold (SELL), 1D and 1W trends not opposed
+- market stable: no volatility spike (ATR > 1.5× its average), not choppy (≤ 6 EMA20 crosses in 20 bars)
+- market open / data fresh
+
+Entry, stop-loss and take-profit are only returned when `actionable` is true. Not financial advice.
 
 Twelve Data's free plan allows 8 requests/min and 800/day (1 per pair). The server queues requests to
 stay under the per-minute limit and caches heavily; a page load costs 6 credits at most every 15 minutes.

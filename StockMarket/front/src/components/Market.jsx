@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { TYPES } from '../data/markets'
 import { useCandles, withLivePrice } from '../hooks/useMarket'
 import { changeOf, fmtCompact, fmtNumber } from '../lib/format'
-import { Avatar, Delta, LivePrice, Sparkline } from './Bits'
+import { Avatar, Delta, LivePrice, SignalBadge, Sparkline } from './Bits'
 import { ExpandIcon } from './Icons'
 import PriceChart from './PriceChart'
 
@@ -85,7 +85,7 @@ function FeaturedBody({ symbol, available, onPick, quotes, bySymbol, onOpen }) {
   )
 }
 
-export function AssetCard({ asset, quote, onOpen }) {
+export function AssetCard({ asset, quote, signal, onOpen }) {
   return (
     <button type="button" className="card asset-card" onClick={() => onOpen(asset.symbol)} aria-label={`Open ${asset.name} chart`}>
       <span className="asset-card__top">
@@ -100,13 +100,14 @@ export function AssetCard({ asset, quote, onOpen }) {
       </span>
       <span className="asset-card__bottom">
         <LivePrice asset={asset} quote={quote} />
+        <SignalBadge signal={signal} />
         <Delta quote={quote} />
       </span>
     </button>
   )
 }
 
-export function MarketSection({ id, title, subtitle, assets, quotes, onOpen, onSeeAll, notice }) {
+export function MarketSection({ id, title, subtitle, assets, quotes, signals = {}, onOpen, onSeeAll, notice }) {
   if (!assets.length && !notice) return null
   return (
     <section className="section" aria-labelledby={`sec-${id}`}>
@@ -124,7 +125,7 @@ export function MarketSection({ id, title, subtitle, assets, quotes, onOpen, onS
       {assets.length > 0 ? (
         <div className="grid-3">
           {assets.map((a) => (
-            <AssetCard key={a.symbol} asset={a} quote={quotes[a.symbol]} onOpen={onOpen} />
+            <AssetCard key={a.symbol} asset={a} quote={quotes[a.symbol]} signal={signals[a.symbol]} onOpen={onOpen} />
           ))}
         </div>
       ) : (

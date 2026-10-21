@@ -48,7 +48,11 @@ function Toasts({ toasts, bySymbol, onOpen, onDismiss }) {
         const dp = bySymbol[symbol]?.dp ?? 2
         return (
           <div key={id} className={`toast toast--${data.signal.toLowerCase()}`}>
-            <button type="button" className="toast__body" onClick={() => (onOpen(symbol), onDismiss(id))}>
+            <button type="button" className="toast__body" onClick={() => {
+                onOpen(symbol)
+                onDismiss(id)
+              }}
+            >
               <SignalBadge signal={data} />
               <span className="label mono">{symbol}</span>
               <span className="caption fog mono">
@@ -75,6 +79,8 @@ function streamNote(stream) {
 export default function App() {
   const { assets, bySymbol, quotes, sources, streams } = useMarket()
   const [watchlist, toggleWatch] = useWatchlist()
+  const ai = useAnalysis(bySymbol, watchlist)
+  const signals = Object.fromEntries(Object.keys(ai.results).map((s) => [s, activeSignal(ai.results[s])]))
   const [filter, setFilter] = useState('all')
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(null)
@@ -121,6 +127,7 @@ export default function App() {
                   subtitle={s.subtitle + streamNote(streams[STREAM_OF[s.id]])}
                   assets={visible.filter((a) => a.type === s.id)}
                   quotes={quotes}
+                  signals={signals}
                   onOpen={setOpen}
                   onSeeAll={filter === 'all' ? () => changeFilter(s.id) : null}
                   notice={noticeFor(s.id)}
@@ -134,7 +141,15 @@ export default function App() {
               )}
             </div>
           </main>
-          <Sidebar quotes={quotes} bySymbol={bySymbol} watchlist={watchlist} onOpen={setOpen} />
+          <Sidebar
+            quotes={quotes}
+            bySymbol={bySymbol}
+            watchlist={watchlist}
+            signals={signals}
+            autoWatch={ai.autoWatch}
+            onAutoWatch={ai.setAutoWatch}
+            onOpen={setOpen}
+          />
         </div>
         <Footer quotes={quotes} bySymbol={bySymbol} stockFeed={sources.stock.feed} />
       </div>
@@ -147,8 +162,11 @@ export default function App() {
           watched={watchlist.includes(open)}
           onToggleWatch={toggleWatch}
           onClose={() => setOpen(null)}
+          analysis={ai.results[open]}
+          onAnalyze={ai.analyze}
         />
       )}
+      <Toasts toasts={ai.toasts} bySymbol={bySymbol} onOpen={setOpen} onDismiss={ai.dismissToast} />
     </div>
   )
 }
