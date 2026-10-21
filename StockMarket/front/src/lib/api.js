@@ -30,3 +30,8 @@ const BAR_PATHS = {
 export function fetchBars(asset, range, opts) {
   return getJSON(`/api/livedata/${BAR_PATHS[asset.type](asset.symbol)}/bars?range=${range}`, opts)
 }
+
+// AI trade signal: "AAPL" → /analysis/stock/AAPL, "BTC/USD" → /analysis/crypto/BTC-USD
+export function fetchAnalysis(asset, opts) {
+  return getJSON(`/api/analysis/${asset.type}/${encodeURIComponent(asset.symbol.replace('/', '-'))}`, opts)
+}
