@@ -22,6 +22,11 @@ export function cached(key, ttlMs, load) {
   return peek(key) ?? remember(key, ttlMs, load())
 }
 
+// Drops every entry whose key starts with `prefix`, so the next call fetches fresh.
+export function forget(prefix) {
+  for (const key of store.keys()) if (key.startsWith(prefix)) store.delete(key)
+}
+
 // Stores a value that was fetched as part of a larger (batched) request.
 export function prime(key, ttlMs, promise) {
   return remember(key, ttlMs, promise)

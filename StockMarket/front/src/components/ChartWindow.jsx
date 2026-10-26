@@ -19,7 +19,7 @@ function AnalysisPanel({ asset, result }) {
     return error ? <p className="analysis analysis--error caption">{error}</p> : null
   }
 
-  const time = new Date(data.generatedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+  const time = new Date(data.generatedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
   const dash = (v) => (v == null ? '—' : fmtNumber(v, asset.dp))
   const rejected = !data.actionable && data.modelSignal !== 'HOLD'
 

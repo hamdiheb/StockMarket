@@ -82,7 +82,8 @@ export function useAnalysis(bySymbol, watchlist, openSymbol = null) {
       if (!auto) unlockAudio()
       setResults((prev) => ({ ...prev, [symbol]: { ...prev[symbol], loading: true, error: null } }))
       try {
-        const data = await fetchAnalysis(asset)
+        // A click always gets a fresh answer; auto-watch reuses the server's per-bar cache.
+        const data = await fetchAnalysis(asset, { refresh: !auto })
         setResults((prev) => ({ ...prev, [symbol]: { data, loading: false, error: null } }))
 
         const changed = data.signal !== lastSignals.current[symbol]

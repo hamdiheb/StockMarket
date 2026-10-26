@@ -31,7 +31,9 @@ export function fetchBars(asset, range, opts) {
   return getJSON(`/api/livedata/${BAR_PATHS[asset.type](asset.symbol)}/bars?range=${range}`, opts)
 }
 
-// AI trade signal: "AAPL" → /analysis/stock/AAPL, "BTC/USD" → /analysis/crypto/BTC-USD
-export function fetchAnalysis(asset, opts) {
-  return getJSON(`/api/analysis/${asset.type}/${encodeURIComponent(asset.symbol.replace('/', '-'))}`, opts)
+// AI trade signal: "AAPL" → /analysis/stock/AAPL, "BTC/USD" → /analysis/crypto/BTC-USD.
+// refresh: bypass the server cache and ask the model again.
+export function fetchAnalysis(asset, { refresh = false, ...opts } = {}) {
+  const path = `/api/analysis/${asset.type}/${encodeURIComponent(asset.symbol.replace('/', '-'))}`
+  return getJSON(refresh ? `${path}?refresh=1` : path, opts)
 }

@@ -3,7 +3,7 @@
 // the browser, and anything short of a clear, stable, high-confidence setup comes back as "stand aside".
 import { HttpError } from '../middlewares/errorHandler.js'
 import { getBars, getClock, getCryptoBars, getCryptoSnapshots, getSnapshots } from './alpaca.js'
-import { cached } from './cache.js'
+import { cached, forget } from './cache.js'
 import { summarize } from './indicators.js'
 import { chatSignal, provider } from './llm.js'
 import { getForexBars, getForexSnapshots } from './twelveData.js'
@@ -288,7 +288,12 @@ export function evaluate(ctx, out) {
   }
 }
 
-export function analyze(type, symbol) {
+// refresh: a manual re-analyze — drop this symbol's cached result and model answer so the model is asked again.
+export function analyze(type, symbol, { refresh = false } = {}) {
+  if (refresh) {
+    forget(`analysis:${type}:${symbol}`)
+    forget(`llm:${type}:${symbol}:`)
+  }
   return cached(`analysis:${type}:${symbol}`, ANALYSIS_CACHE_MS, async () => {
     const started = Date.now()
     const ctx = await buildContext(type, symbol)

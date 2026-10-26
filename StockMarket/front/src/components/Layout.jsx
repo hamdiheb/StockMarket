@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { changeOf, fmtNumber } from '../lib/format'
 import { Avatar, Delta, LivePrice, SignalBadge } from './Bits'
 import { FILTERS } from './filters'
@@ -7,7 +8,7 @@ import { SearchIcon, SettingsIcon } from './Icons'
 export function IconRail({ filter, onFilter }) {
   return (
     <nav className="rail" aria-label="Markets">
-      <div className="rail__logo mono" aria-hidden="true">SM</div>
+      <Link to="/" className="rail__logo mono" aria-label="Home" title="Home">SM</Link>
       {FILTERS.map(({ id, label, icon: Icon }) => (
         <button
           key={id}
